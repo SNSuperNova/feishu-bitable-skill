@@ -1,0 +1,18 @@
+[
+  {
+    "field_id": "fldName",
+    "field_name": "名称",
+    "type": 1,
+    "is_primary": true
+  },
+  {
+    "field_id": "fldQty",
+    "field_name": "数量",
+    "type": 2
+  },
+  {
+    "field_id": "fldDay",
+    "field_name": "需求时间",
+    "type": 5
+  }
+]
