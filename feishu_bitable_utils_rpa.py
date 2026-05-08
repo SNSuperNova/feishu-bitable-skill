@@ -40,6 +40,7 @@ FT_CREATED_BY = 1003
 FT_MODIFIED_BY = 1004
 FT_LOCATION = 22
 READONLY_FIELD_TYPES = frozenset({FT_FORMULA, FT_AUTO_NUMBER, FT_CREATED_TIME, FT_MODIFIED_TIME, FT_CREATED_BY, FT_MODIFIED_BY})
+PRIMARY_WRITABLE_FIELD_TYPES = frozenset({FT_TEXT, FT_NUMBER, FT_SINGLE_SELECT, FT_MULTI_SELECT, FT_DATE, FT_CHECKBOX})
 
 class TableViewRef:
 
@@ -250,6 +251,10 @@ def _is_readonly_type(ft):
     if s.isdigit() and int(s) in READONLY_FIELD_TYPES:
         return True
     return False
+
+def _is_writable_primary_field(field):
+    t = int(field.type) if str(field.type).isdigit() else 0
+    return bool(field.is_primary and field.field_name and t in PRIMARY_WRITABLE_FIELD_TYPES)
 
 def table_field_from_api(item, *, allow_write_override=None):
     """从 `bitable_v1_appTableField_list` 的单个 item 构造 TableField。"""
@@ -704,7 +709,7 @@ def build_patch_dict(name_to_value, schema, record_id):
         if f is None:
             norm.append(NormalizedWriteValue(k, k, '?', v, None, False, error='未知列'))
             continue
-        if not f.writable:
+        if (not f.writable) and (not _is_writable_primary_field(f)):
             norm.append(NormalizedWriteValue(f.field_name, f.field_id, f.type, v, None, False, '不可写'))
             continue
         av, err = normalize_value_for_write(f, v)
