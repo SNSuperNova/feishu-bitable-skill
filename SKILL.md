@@ -112,7 +112,7 @@ rows = query_records_by_time(
 ## 局部列回写
 
 - 更新协议：`record_id` + `columns` + `values`，列表顺序与列名一一对应。
-- 新增协议：`columns` + `rows` 二维列表，不需要 `record_id`；每一行长度必须等于 `columns` 长度。
+- 新增协议：`columns` + `rows` 二维列表，不需要 `record_id`；每一行长度必须等于 `columns` 长度。多行新增会自动走飞书 `batch_create` 批量接口，默认每批 500 行；传 `batch_size=1` 可退回逐条创建。
 - 写入前会读取 schema 并做字段存在性、只读字段和类型归一化校验。
 
 ## Dry-run 安全
@@ -120,7 +120,7 @@ rows = query_records_by_time(
 - `dry_run_update_by_names` 永远只预演。
 - `update_record_by_names` 和 `create_records_by_names` 默认 `confirm_write=False`，只返回预演；只有显式 `confirm_write=True` 才真实写入。
 - `confirm_write=True` 时不再先生成 dry-run 报告；仍会做 schema、字段可写性和类型归一化校验，校验失败不写入。
-- `update_record_by_names` 默认 `readback=True`，真实更新后读回本次字段；RPA 高频场景可传 `readback=False` 跳过。新增接口不额外 readback，直接返回 create API 的记录结果。
+- `update_record_by_names` 默认 `readback=True`，真实更新后读回本次字段；RPA 高频场景可传 `readback=False` 跳过。新增接口不额外 readback，直接返回 create/batch_create API 的记录结果。
 
 ## 字段类型与只读
 

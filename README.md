@@ -110,10 +110,13 @@ result = create_records_by_names(
     columns=["名称", "数量", "状态"],
     rows=[
         ["示例名称", 1, "待处理"],
+        ["示例名称 2", 2, "待处理"],
     ],
     confirm_write=True,
 )
 ```
+
+传入多行时会自动使用飞书 `batch_create` 接口批量新增，默认每批最多 500 行。需要退回逐条创建时，可以传 `batch_size=1`。
 
 ## RPA 使用
 

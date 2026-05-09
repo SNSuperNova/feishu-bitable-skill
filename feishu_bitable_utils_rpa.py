@@ -940,6 +940,13 @@ def _create_record(ref, fields, *, token):
     data = _feishu_request('POST', f'/bitable/v1/apps/{ref.app_token}/tables/{ref.table_id}/records', token=token, json_body={'fields': fields})
     return (data.get('data') or {}).get('record') or data.get('data') or {}
 
+def _create_records_batch(ref, records_fields, *, token):
+    if not records_fields:
+        return []
+    data = _feishu_request('POST', f'/bitable/v1/apps/{ref.app_token}/tables/{ref.table_id}/records/batch_create', token=token, json_body={'records': [{'fields': fields} for fields in records_fields]})
+    body = data.get('data') or {}
+    return body.get('records') or body.get('items') or []
+
 def _cell_to_local_date(value):
     ms = extract_time_ms_for_filter(value)
     if ms is None:
@@ -1107,7 +1114,7 @@ def update_record_by_names(app_token, table_name, record_id, columns, values, vi
         result['readback'] = {k: (readback_record.get('fields') or {}).get(k) for k in fields}
     return result
 
-def create_records_by_names(app_token, table_name, columns, rows, view_name=None, table_id=None, credentials=None, confirm_write=False):
+def create_records_by_names(app_token, table_name, columns, rows, view_name=None, table_id=None, credentials=None, confirm_write=False, batch_size=500):
     """
     用字段名列表和二维数据批量新增记录。
 
@@ -1115,6 +1122,7 @@ def create_records_by_names(app_token, table_name, columns, rows, view_name=None
         columns: 新增字段名列表。
         rows: 二维列表；每一行必须与 `columns` 等长。新增不需要 `record_id`。
         confirm_write: 默认 false，只返回新增预演；true 时跳过 dry-run 报告并真实创建记录。
+        batch_size: 多行新增时每次 batch_create 的记录数，默认 500；传 1 可退回逐条创建。
 
     返回:
         dry-run: `{"ok": true, "summary": {"to_create": 2, "to_skip": 0}, "dry_run": true}`
@@ -1134,12 +1142,25 @@ def create_records_by_names(app_token, table_name, columns, rows, view_name=None
     errors = _patches_errors(patches)
     if errors:
         return {'ok': False, 'errors': errors, 'warnings': [], 'summary': {'to_create': 0, 'to_skip': len(patches)}, 'dry_run': False}
-    created = []
+    records_fields = []
     for patch in patches:
         fields = _patch_to_field_name_fields(patch)
         if fields:
+            records_fields.append(fields)
+    if batch_size < 1:
+        raise ValueError('batch_size 必须大于等于 1')
+    created = []
+    batch_count = 0
+    if len(records_fields) == 1 or batch_size == 1:
+        for fields in records_fields:
             created.append(_create_record(ref, fields, token=token))
-    return {'ok': True, 'created': created, 'summary': {'created': len(created)}}
+            batch_count += 1
+        return {'ok': True, 'created': created, 'summary': {'created': len(created), 'request_count': batch_count}}
+    for start in range(0, len(records_fields), batch_size):
+        batch = records_fields[start:start + batch_size]
+        created.extend(_create_records_batch(ref, batch, token=token))
+        batch_count += 1
+    return {'ok': True, 'created': created, 'summary': {'created': len(created), 'request_count': batch_count}}
 
 def list_result_to_csv_string(res):
     buf = StringIO()
