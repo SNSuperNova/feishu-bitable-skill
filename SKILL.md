@@ -18,6 +18,7 @@
 
 - 文件名：`feishu_bitable_utils.py`（与本文档同目录）。
 - 所有核心逻辑（类型、扁平化、schema、筛选、归一化、dry-run、报告格式、可选 CLI）均在该单文件内；**不得**将核心逻辑拆到多个库内 `.py` 再作为「核心」。
+- 在线表格（Sheets）RPA 辅助文件：`feishu_sheets_utils_rpa.py`，用于普通在线表格的按列查询行和按匹配行更新单元格。
 - 调试/示例仅放在 `debug/`，且只能 **import** 核心模块，不得复制核心逻辑。
 
 ## 导入与 RPA 调用
@@ -84,6 +85,8 @@ rows = query_records_by_time(
 | 更新预演          | `dry_run_update_by_names(app_token, table_name, record_id, columns, values)`                  |
 | 安全更新          | `update_record_by_names(..., confirm_write=True)`                                             |
 | 安全新增          | `create_records_by_names(app_token, table_name, columns, rows, confirm_write=True)`           |
+| 在线表格按列查询行     | `query_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value)`          |
+| 在线表格按匹配行更新列   | `update_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value, ...)`    |
 | 底层转换          | `flatten_records`, `records_to_list_result`, `build_time_filter_for_search`, `dry_run_update` |
 
 

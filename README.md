@@ -17,6 +17,7 @@
 
 - `feishu_bitable_utils.py`：主实现，保留类型注解，适合普通 Python 项目和 Cursor Skill。
 - `feishu_bitable_utils_rpa.py`：RPA 友好版本，移除了函数参数和返回值类型注解。
+- `feishu_sheets_utils_rpa.py`：在线表格 RPA 工具，支持按 sheet 名和列名查询/更新普通表格行。
 - `SKILL.md`：Cursor Skill 使用说明和详细设计约束。
 - `.env.example`：凭证配置模板。
 - `debug/`：本地调试示例和样例数据。
@@ -117,6 +118,34 @@ result = create_records_by_names(
 ```
 
 传入多行时会自动使用飞书 `batch_create` 接口批量新增，默认每批最多 500 行。需要退回逐条创建时，可以传 `batch_size=1`。
+
+## 在线表格查询与更新
+
+`feishu_sheets_utils_rpa.py` 用于普通在线表格，不是多维表。它按第一行表头识别列名，并通过 sheet 名定位工作表。
+
+```python
+from feishu_sheets_utils_rpa import (
+    query_sheet_row_by_column,
+    update_sheet_row_by_column,
+)
+
+matched = query_sheet_row_by_column(
+    spreadsheet_token=spreadsheet_token,
+    sheet_name="示例Sheet",
+    match_column="主播名",
+    match_value="示例主播",
+)
+
+updated = update_sheet_row_by_column(
+    spreadsheet_token=spreadsheet_token,
+    sheet_name="示例Sheet",
+    match_column="主播名",
+    match_value="示例主播",
+    update_columns=["对账日期"],
+    update_values=["2026-05-12"],
+    confirm_write=True,
+)
+```
 
 ## RPA 使用
 

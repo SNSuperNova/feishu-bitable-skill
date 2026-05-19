@@ -670,7 +670,7 @@ def normalize_value_for_write(field, value):
             return (None, '无法解析日期/时间')
         if ms is None:
             return (None, None)
-        if isinstance(field.property, dict) and field.property.get('date_type') in ('date_time',):
+        if isinstance(field.property, dict) and field.property.get('date_type') == 'date_time':
             return (ms, None)
         return (ms, None)
     if t in (7, FT_CHECKBOX):
@@ -1036,36 +1036,41 @@ def list_bitable_tables(app_token, credentials=None):
         result.append({'table_name': table.get('name'), 'table_id': table_id, 'views': [{'view_name': v.get('view_name') or v.get('name'), 'view_id': v.get('view_id') or v.get('id'), 'view_type': v.get('view_type')} for v in views]})
     return result
 
-def query_records_by_time(app_token, table_name, time_column, condition=None, exact_date=None, start_date=None, end_date=None, query_columns=None, view_name=None, table_id=None, view_id=None, credentials=None):
+def query_records_by_time(app_token, table_name, query_columns=None, time_column=None, condition=None, start_date=None, end_date=None):
     """
-    按时间列查询记录，并返回二维列表结构。
+    查询记录，并返回二维列表结构。
 
-    常规 RPA 调用只需要传 `app_token + table_name + time_column`。
-    `table_id/view_id` 仅用于表名或视图名重复时消歧。
+    最小调用只需要传 `app_token + table_name`，默认查询全表所有列。
+    如只需要部分列，传 `query_columns`。
+    如需要按日期筛选，再额外传 `time_column + condition` 或 `time_column + start_date/end_date`。
 
     时间参数:
         condition: 飞书原生相对时间关键字，支持 `Today`、`Yesterday`、`CurrentMonth`、`LastMonth`。
             提供后优先使用接口侧过滤。
-        exact_date: 精确日期，例如 `2026-04-28` 或 `2026/04/28`。
         start_date/end_date: 包含式日期范围，例如 `2026-04-26` 到 `2026-04-28`。
 
     返回:
         `ListReadResult(columns=[...], rows=[...], rows_by_record_id={...}, raw_records=[...], schema=...)`
     """
-    if exact_date and (start_date or end_date):
-        raise ValueError('exact_date 不能和 start_date/end_date 同时使用')
-    token = _get_tenant_access_token(credentials)
-    ref = _resolve_table_and_view(app_token, table_name, view_name=view_name, table_id=table_id, view_id=view_id, token=token)
+    if (condition or start_date or end_date) and (not time_column):
+        raise ValueError('使用日期筛选时必须传 time_column；不传 time_column 时默认查询全表')
+    if condition and (start_date or end_date):
+        raise ValueError('condition 不能和 start_date/end_date 同时使用')
+    token = _get_tenant_access_token()
+    ref = _resolve_table_and_view(app_token, table_name, token=token)
     schema = _fetch_view_schema(ref, token=token)
     output_columns = query_columns or list(schema.columns)
-    for col in [time_column, *output_columns]:
+    validate_columns = list(output_columns)
+    if time_column:
+        validate_columns.append(time_column)
+    for col in validate_columns:
         if col not in schema.fields:
             raise KeyError(f'列 {col!r} 不存在. 可用列: {list(schema.fields)}')
-    filter_ = build_time_filter_for_search(time_column, condition) if condition else None
-    fetch_columns = list(dict.fromkeys([time_column, *output_columns]))
+    filter_ = build_time_filter_for_search(time_column, condition) if (time_column and condition) else None
+    fetch_columns = list(dict.fromkeys(([time_column] if time_column else []) + list(output_columns)))
     raw_records = _search_records(ref, token=token, query_columns=fetch_columns, filter_=filter_)
-    if exact_date or start_date or end_date:
-        raw_records = _filter_records_by_local_date(raw_records, time_column=time_column, exact_date=exact_date, start_date=start_date, end_date=end_date)
+    if start_date or end_date:
+        raw_records = _filter_records_by_local_date(raw_records, time_column=time_column, start_date=start_date, end_date=end_date)
     return records_to_list_result(raw_records, _schema_subset(schema, output_columns), include_record_id_column=True)
 
 def dry_run_update_by_names(app_token, table_name, record_id, columns, values, view_name=None, table_id=None, credentials=None):
@@ -1195,13 +1200,14 @@ def _reference_usage_cases():
     app_token = "base_xxx"
     table_name = "示例数据表"
     tables = list_bitable_tables(app_token)
+    all_rows = query_records_by_time(app_token=app_token, table_name=table_name)
     current_month_rows = query_records_by_time(app_token=app_token, table_name=table_name, time_column='申请时间', condition='CurrentMonth')
     yesterday_rows = query_records_by_time(app_token=app_token, table_name=table_name, time_column='申请时间', condition='Yesterday', query_columns=['状态', '名称', '数量'])
-    specific_date_rows = query_records_by_time(app_token=app_token, table_name=table_name, time_column='申请时间', exact_date='2026/04/28')
+    specific_date_rows = query_records_by_time(app_token=app_token, table_name=table_name, time_column='申请时间', start_date='2026/04/28', end_date='2026/04/28')
     range_rows = query_records_by_time(app_token=app_token, table_name=table_name, time_column='申请时间', start_date='2026-04-26', end_date='2026-04-28', query_columns=['状态', '名称', '数量'])
     dry_run = dry_run_update_by_names(app_token=app_token, table_name=table_name, record_id='recxxxx', columns=['状态'], values=['已完成'])
     write_result = update_record_by_names(app_token=app_token, table_name=table_name, record_id='recxxxx', columns=['状态'], values=['已完成'], confirm_write=True)
     create_result = create_records_by_names(app_token=app_token, table_name=table_name, columns=['名称', '数量', '状态'], rows=[['示例名称 A', 1, '待处理'], ['示例名称 B', 2, '待处理']])
-    _ = (tables, current_month_rows, yesterday_rows, specific_date_rows, range_rows, dry_run, write_result, create_result)
+    _ = (tables, all_rows, current_month_rows, yesterday_rows, specific_date_rows, range_rows, dry_run, write_result, create_result)
 if __name__ == '__main__':
     print('feishu_bitable_utils.py 提供 RPA 可直接 import 的函数；请查看文件底部 _reference_usage_cases() 中的调用案例。')
