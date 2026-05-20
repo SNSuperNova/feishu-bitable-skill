@@ -523,6 +523,21 @@ def _readable_cell_value(cell: Any) -> Any:
     return cell
 
 
+def _date_display(field: TableField, cell: Any) -> Any:
+    value = cell.get("date") if isinstance(cell, dict) and "date" in cell else cell
+    if isinstance(value, str) and value.isdigit():
+        value = int(value)
+    if not isinstance(value, (int, float)):
+        return value
+    ms = int(value)
+    if ms < 1_000_000_000_000:
+        ms *= 1000
+    dt = datetime.fromtimestamp(ms / 1000, tz=timezone(timedelta(hours=8)))
+    if isinstance(field.property, dict) and field.property.get("date_type") == "date_time":
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return dt.strftime("%Y-%m-%d")
+
+
 def field_cell_display(
     field: TableField,
     cell: Any,
@@ -559,12 +574,9 @@ def field_cell_display(
                     out.append(str(c))
             return out
     if t in (5, FT_DATE):
-        if isinstance(cell, (int, float)):
-            return int(cell)
-        if isinstance(cell, dict) and "date" in cell:
-            d = cell.get("date")
-            if isinstance(d, (int, float)):
-                return int(d)
+        return _date_display(field, cell)
+    if t in (FT_CREATED_TIME, FT_MODIFIED_TIME):
+        return _date_display(field, cell)
     if t in (7, FT_CHECKBOX):
         if isinstance(cell, bool):
             return cell
