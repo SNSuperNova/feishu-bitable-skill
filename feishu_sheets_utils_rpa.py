@@ -374,6 +374,31 @@ def query_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match
     }
 
 
+def query_sheet_rows_by_column(spreadsheet_token, sheet_name, match_column, match_value):
+    """
+    查询指定 sheet 中某列内容匹配的所有行。
+
+    返回:
+        {
+            "columns": [...],
+            "rows": [[...], [...]]
+        }
+    """
+    token = _get_tenant_access_token()
+    table = _read_sheet_table(spreadsheet_token, sheet_name, token, 1, None, None)
+    headers = table.get("headers") or []
+    match_idx = _column_index(headers, match_column)
+    matched_rows = []
+    for offset, row_values in enumerate(table.get("rows") or []):
+        cell = row_values[match_idx] if match_idx < len(row_values) else None
+        if _match_value(cell, match_value, exact_match=True, case_sensitive=True):
+            matched_rows.append(row_values)
+    return {
+        "columns": headers,
+        "rows": matched_rows
+    }
+
+
 def update_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value, update_columns, update_values=None, confirm_write=False):
     """
     定位指定 sheet 中某列内容匹配的第一行，并更新该行指定列。

@@ -86,6 +86,7 @@ rows = query_records_by_time(
 | 安全更新          | `update_record_by_names(..., confirm_write=True)`                                             |
 | 安全新增          | `create_records_by_names(app_token, table_name, columns, rows, confirm_write=True)`           |
 | 在线表格按列查询行     | `query_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value)`          |
+| 在线表格按列查询所有匹配行 | `query_sheet_rows_by_column(spreadsheet_token, sheet_name, match_column, match_value)`         |
 | 在线表格按匹配行更新列   | `update_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value, ...)`    |
 | 底层转换          | `flatten_records`, `records_to_list_result`, `build_time_filter_for_search`, `dry_run_update` |
 

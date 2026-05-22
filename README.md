@@ -126,6 +126,7 @@ result = create_records_by_names(
 ```python
 from feishu_sheets_utils_rpa import (
     query_sheet_row_by_column,
+    query_sheet_rows_by_column,
     update_sheet_row_by_column,
 )
 
@@ -135,6 +136,14 @@ matched = query_sheet_row_by_column(
     match_column="主播名",
     match_value="示例主播",
 )
+
+matched_rows = query_sheet_rows_by_column(
+    spreadsheet_token=spreadsheet_token,
+    sheet_name="示例Sheet",
+    match_column="主播名",
+    match_value="示例主播",
+)
+# 返回：{"columns": [...], "rows": [[...], [...]]}
 
 updated = update_sheet_row_by_column(
     spreadsheet_token=spreadsheet_token,
