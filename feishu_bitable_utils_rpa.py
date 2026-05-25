@@ -29,8 +29,8 @@ FT_MULTI_SELECT = 4
 FT_DATE = 5
 FT_CHECKBOX = 7
 FT_USER = 11
-FT_ATTACHMENT = 15
-FT_HYPERLINK = 17
+FT_HYPERLINK = 15
+FT_ATTACHMENT = 17
 FT_FORMULA = 20
 FT_DUPLEX_LINK = 21
 FT_AUTO_NUMBER = 1005
@@ -376,6 +376,18 @@ def _date_display(field, cell):
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     return dt.strftime('%Y-%m-%d')
 
+def _attachment_file_tokens(cell):
+    items = cell if isinstance(cell, list) else [cell]
+    tokens = []
+    for item in items:
+        if isinstance(item, dict):
+            token = item.get('file_token') or item.get('token') or item.get('fileToken')
+            if token:
+                tokens.append(token)
+        elif isinstance(item, str) and item.startswith('file_'):
+            tokens.append(item)
+    return tokens
+
 def field_cell_display(field, cell):
     """将飞书记录中某一字段的原始 `cell` 转为便于调试/CSV 的展示值。"""
     t = int(field.type) if str(field.type).isdigit() else 0
@@ -417,10 +429,12 @@ def field_cell_display(field, cell):
             return cell
     if t in (11, FT_USER):
         return _person_display(cell)
-    if t in (15, 17, FT_HYPERLINK, FT_ATTACHMENT):
-        if isinstance(cell, list):
-            names = [x.get('name') or x.get('file_name') for x in cell if isinstance(x, dict)]
-            return [n for n in names if n] or cell
+    if t in (FT_ATTACHMENT, 17):
+        tokens = _attachment_file_tokens(cell)
+        return tokens if tokens else cell
+    if t in (FT_HYPERLINK, 15):
+        readable = _readable_cell_value(cell)
+        return readable if readable is not None else cell
     if t in (18, 21, FT_DUPLEX_LINK):
         if isinstance(cell, list):
             return [x.get('record_id', x) if isinstance(x, dict) else x for x in cell]

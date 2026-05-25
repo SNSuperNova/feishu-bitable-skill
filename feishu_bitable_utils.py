@@ -50,9 +50,9 @@ FT_MULTI_SELECT = 4
 FT_DATE = 5
 FT_CHECKBOX = 7
 FT_USER = 11
-FT_ATTACHMENT = 15
-# 飞书: 15 常用为附件, 17 为超链
-FT_HYPERLINK = 17
+# 飞书 Bitable: 15 为超链, 17 为附件
+FT_HYPERLINK = 15
+FT_ATTACHMENT = 17
 FT_FORMULA = 20
 FT_DUPLEX_LINK = 21
 # 时间、创建者等
@@ -538,6 +538,19 @@ def _date_display(field: TableField, cell: Any) -> Any:
     return dt.strftime("%Y-%m-%d")
 
 
+def _attachment_file_tokens(cell: Any) -> List[str]:
+    items = cell if isinstance(cell, list) else [cell]
+    tokens: List[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            token = item.get("file_token") or item.get("token") or item.get("fileToken")
+            if token:
+                tokens.append(str(token))
+        elif isinstance(item, str) and item.startswith("file_"):
+            tokens.append(item)
+    return tokens
+
+
 def field_cell_display(
     field: TableField,
     cell: Any,
@@ -582,10 +595,12 @@ def field_cell_display(
             return cell
     if t in (11, FT_USER):
         return _person_display(cell)
-    if t in (15, 17, FT_HYPERLINK, FT_ATTACHMENT):
-        if isinstance(cell, list):
-            names = [x.get("name") or x.get("file_name") for x in cell if isinstance(x, dict)]
-            return [n for n in names if n] or cell
+    if t in (FT_ATTACHMENT, 17):
+        tokens = _attachment_file_tokens(cell)
+        return tokens if tokens else cell
+    if t in (FT_HYPERLINK, 15):
+        readable = _readable_cell_value(cell)
+        return readable if readable is not None else cell
     if t in (18, 21, FT_DUPLEX_LINK):
         if isinstance(cell, list):
             return [x.get("record_id", x) if isinstance(x, dict) else x for x in cell]
