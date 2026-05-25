@@ -538,17 +538,29 @@ def _date_display(field: TableField, cell: Any) -> Any:
     return dt.strftime("%Y-%m-%d")
 
 
-def _attachment_file_tokens(cell: Any) -> List[str]:
+def _attachment_files(cell: Any) -> List[Dict[str, Optional[str]]]:
     items = cell if isinstance(cell, list) else [cell]
-    tokens: List[str] = []
+    files: List[Dict[str, Optional[str]]] = []
     for item in items:
         if isinstance(item, dict):
             token = item.get("file_token") or item.get("token") or item.get("fileToken")
-            if token:
-                tokens.append(str(token))
+            url = (
+                item.get("url")
+                or item.get("tmp_url")
+                or item.get("file_url")
+                or item.get("preview_url")
+                or item.get("download_url")
+            )
+            if token or url:
+                files.append(
+                    {
+                        "file_token": str(token) if token is not None else None,
+                        "url": str(url) if url is not None else None,
+                    }
+                )
         elif isinstance(item, str) and item.startswith("file_"):
-            tokens.append(item)
-    return tokens
+            files.append({"file_token": item, "url": None})
+    return files
 
 
 def field_cell_display(
@@ -596,8 +608,8 @@ def field_cell_display(
     if t in (11, FT_USER):
         return _person_display(cell)
     if t in (FT_ATTACHMENT, 17):
-        tokens = _attachment_file_tokens(cell)
-        return tokens if tokens else cell
+        files = _attachment_files(cell)
+        return files if files else cell
     if t in (FT_HYPERLINK, 15):
         readable = _readable_cell_value(cell)
         return readable if readable is not None else cell

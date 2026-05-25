@@ -376,17 +376,18 @@ def _date_display(field, cell):
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     return dt.strftime('%Y-%m-%d')
 
-def _attachment_file_tokens(cell):
+def _attachment_files(cell):
     items = cell if isinstance(cell, list) else [cell]
-    tokens = []
+    files = []
     for item in items:
         if isinstance(item, dict):
             token = item.get('file_token') or item.get('token') or item.get('fileToken')
-            if token:
-                tokens.append(token)
+            url = item.get('url') or item.get('tmp_url') or item.get('file_url') or item.get('preview_url') or item.get('download_url')
+            if token or url:
+                files.append({'file_token': token, 'url': url})
         elif isinstance(item, str) and item.startswith('file_'):
-            tokens.append(item)
-    return tokens
+            files.append({'file_token': item, 'url': None})
+    return files
 
 def field_cell_display(field, cell):
     """将飞书记录中某一字段的原始 `cell` 转为便于调试/CSV 的展示值。"""
@@ -430,8 +431,8 @@ def field_cell_display(field, cell):
     if t in (11, FT_USER):
         return _person_display(cell)
     if t in (FT_ATTACHMENT, 17):
-        tokens = _attachment_file_tokens(cell)
-        return tokens if tokens else cell
+        files = _attachment_files(cell)
+        return files if files else cell
     if t in (FT_HYPERLINK, 15):
         readable = _readable_cell_value(cell)
         return readable if readable is not None else cell
