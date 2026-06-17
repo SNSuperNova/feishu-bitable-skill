@@ -566,7 +566,12 @@ def _attachment_files(cell: Any) -> List[Dict[str, Optional[str]]]:
 def _link_record_ids_display(cell: Any) -> Any:
     """兼容飞书关联字段的几种返回形态，统一先提取 record_id 列表。"""
     if isinstance(cell, dict):
-        ids = cell.get("link_record_ids") or cell.get("record_ids")
+        if "link_record_ids" in cell:
+            ids = cell.get("link_record_ids")
+        elif "record_ids" in cell:
+            ids = cell.get("record_ids")
+        else:
+            ids = None
         if isinstance(ids, list):
             return [
                 x.get("record_id", x) if isinstance(x, dict) else x
@@ -574,6 +579,8 @@ def _link_record_ids_display(cell: Any) -> Any:
             ]
         if ids is not None:
             return [ids]
+        if "link_record_ids" in cell or "record_ids" in cell:
+            return None
         records = cell.get("records")
         if isinstance(records, list):
             return [
