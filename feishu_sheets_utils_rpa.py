@@ -19,6 +19,8 @@ FEISHU_APP_CREDENTIAL_ENV_KEYS = {
     "app_secret": "FEISHU_APP_SECRET",
 }
 FEISHU_OPEN_API_BASE = "https://open.feishu.cn/open-apis"
+
+# 长进程/RPA 会频繁重复查询同一份表格，缓存 token 和 sheet 元数据能减少接口调用。
 _TENANT_TOKEN_CACHE = {}
 _SHEETS_CACHE = {}
 
@@ -34,6 +36,7 @@ def _clean_config_value(value):
 
 
 def load_dotenv_values(env_file=DEFAULT_ENV_FILE):
+    """读取简单 KEY=value 格式的 .env，避免额外依赖 python-dotenv。"""
     values = {}
     if not env_file:
         return values
@@ -143,6 +146,7 @@ def _feishu_request(method, path, token, params=None, json_body=None):
 
 
 def _quote_range(range_name):
+    """飞书 Sheets v2 的 range 放在 URL path 中，需要保留 A1 语法字符。"""
     return quote(range_name, safe="!:$")
 
 
@@ -287,6 +291,7 @@ def _batch_update_values(spreadsheet_token, value_ranges, token):
 
 
 def _read_sheet_table(spreadsheet_token, sheet_name, token, header_row=1, max_rows=None, max_columns=None):
+    """按第一行表头读取二维区域，后续查询/更新都基于列名定位。"""
     sheet = _resolve_sheet(spreadsheet_token, sheet_name, token)
     row_count = max_rows or sheet.get("row_count") or 5000
     column_count = max_columns or sheet.get("column_count") or 200
@@ -469,6 +474,7 @@ def update_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, matc
         return result
 
     try:
+        # 优先批量更新；部分租户/权限组合失败时再退回逐列写，提升兼容性。
         api_result = _batch_update_values(spreadsheet_token, value_ranges, token)
         result["api_response"] = api_result
         result["request_count"] = 1

@@ -563,6 +563,31 @@ def _attachment_files(cell: Any) -> List[Dict[str, Optional[str]]]:
     return files
 
 
+def _link_record_ids_display(cell: Any) -> Any:
+    """兼容飞书关联字段的几种返回形态，统一先提取 record_id 列表。"""
+    if isinstance(cell, dict):
+        ids = cell.get("link_record_ids") or cell.get("record_ids")
+        if isinstance(ids, list):
+            return [
+                x.get("record_id", x) if isinstance(x, dict) else x
+                for x in ids
+            ]
+        if ids is not None:
+            return [ids]
+        records = cell.get("records")
+        if isinstance(records, list):
+            return [
+                x.get("record_id", x) if isinstance(x, dict) else x
+                for x in records
+            ]
+    if isinstance(cell, list):
+        return [
+            x.get("record_id", x) if isinstance(x, dict) else x
+            for x in cell
+        ]
+    return cell
+
+
 def field_cell_display(
     field: TableField,
     cell: Any,
@@ -614,8 +639,7 @@ def field_cell_display(
         readable = _readable_cell_value(cell)
         return readable if readable is not None else cell
     if t in (18, 21, FT_DUPLEX_LINK):
-        if isinstance(cell, list):
-            return [x.get("record_id", x) if isinstance(x, dict) else x for x in cell]
+        return _link_record_ids_display(cell)
     readable = _readable_cell_value(cell)
     if not isinstance(readable, (dict, list)):
         return readable
@@ -1438,6 +1462,108 @@ def _search_records(
     )
 
 
+def _primary_field(schema: ViewSchema) -> Optional[TableField]:
+    """关联记录展示时优先使用主字段；缺失主字段时退回第一列。"""
+    for field in schema.fields.values():
+        if field.is_primary:
+            return field
+    if schema.columns:
+        return schema.fields.get(schema.columns[0])
+    return None
+
+
+def _record_field_key(record: Dict[str, Any], field: TableField) -> str:
+    """保持原始 record 的字段键风格，避免 field_id/name 混用时写错位置。"""
+    fields = record.get("fields") or {}
+    if field.field_id and field.field_id in fields:
+        return field.field_id
+    if field.field_name in fields:
+        return field.field_name
+    return field.field_name or field.field_id
+
+
+def _linked_record_display_map(
+    app_token: str,
+    table_id: str,
+    table_name: Optional[str],
+    *,
+    token: str,
+) -> Dict[str, Any]:
+    """读取关联表主字段，构造 record_id -> 展示值 的映射。"""
+    ref = TableViewRef(
+        app_token=app_token,
+        table_name=table_name or table_id,
+        table_id=table_id,
+    )
+    schema = _fetch_view_schema(ref, token=token)
+    primary = _primary_field(schema)
+    if primary is None:
+        return {}
+    records = _search_records(ref, token=token, query_columns=[primary.field_name])
+    return {
+        str(record.get("record_id")): field_cell_display(
+            primary,
+            get_field_raw(record, primary),
+        )
+        for record in records
+        if record.get("record_id") and get_field_raw(record, primary) is not None
+    }
+
+
+def _expand_link_record_displays(
+    raw_records: List[Dict[str, Any]],
+    schema: ViewSchema,
+    *,
+    app_token: str,
+    token: str,
+) -> List[Dict[str, Any]]:
+    """
+    将关联字段的 record_id 展开为关联表主字段展示值。
+
+    飞书 records/search 默认只返回关联记录 ID；为了让 RPA/CSV 结果更接近界面显示，
+    这里会按关联字段 property.table_id 额外读取一次关联表主字段。
+    """
+    link_fields = [
+        field
+        for field in schema.fields.values()
+        if (int(field.type) if str(field.type).isdigit() else 0)
+        in (18, 21, FT_DUPLEX_LINK)
+        and isinstance(field.property, dict)
+        and field.property.get("table_id")
+    ]
+    if not link_fields:
+        return raw_records
+
+    display_maps: Dict[str, Dict[str, Any]] = {}
+    for field in link_fields:
+        linked_table_id = str(field.property.get("table_id"))
+        if linked_table_id not in display_maps:
+            display_maps[linked_table_id] = _linked_record_display_map(
+                app_token,
+                linked_table_id,
+                field.property.get("table_name"),
+                token=token,
+            )
+
+    expanded: List[Dict[str, Any]] = []
+    for record in raw_records:
+        copied = dict(record)
+        fields = dict(record.get("fields") or {})
+        copied["fields"] = fields
+        for field in link_fields:
+            raw = get_field_raw(record, field)
+            ids = _link_record_ids_display(raw)
+            if not isinstance(ids, list):
+                continue
+            display_map = display_maps.get(str(field.property.get("table_id")), {})
+            values = [display_map.get(str(record_id), record_id) for record_id in ids]
+            fields[_record_field_key(record, field)] = (
+                values[0] if len(values) == 1 else values
+            )
+        expanded.append(copied)
+    return expanded
+
+
 def _read_record(ref: TableViewRef, record_id: str, *, token: str) -> Dict[str, Any]:
     data = _feishu_request(
         "GET",
@@ -1712,6 +1838,12 @@ def query_records_by_time(
             start_date=start_date,
             end_date=end_date,
         )
+    raw_records = _expand_link_record_displays(
+        raw_records,
+        _schema_subset(schema, output_columns),
+        app_token=app_token,
+        token=token,
+    )
     return records_to_list_result(
         raw_records,
         _schema_subset(schema, output_columns),

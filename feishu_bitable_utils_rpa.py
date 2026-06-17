@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 FEISHU_APP_CREDENTIALS = {'app_id': '', 'app_secret': ''}
 DEFAULT_ENV_FILE = str(Path(__file__).with_name('.env'))
 FEISHU_APP_CREDENTIAL_ENV_KEYS = {'app_id': 'FEISHU_APP_ID', 'app_secret': 'FEISHU_APP_SECRET'}
+
+# RPA 版本保留轻量类，避免 dataclass/类型注解在部分自动化工具中被误解析。
 FeishuRawRecord = Dict[str, Any]
 FieldSchemaMap = Dict[str, 'TableField']
 ColumnNames = List[str]
@@ -39,6 +41,8 @@ FT_MODIFIED_TIME = 1002
 FT_CREATED_BY = 1003
 FT_MODIFIED_BY = 1004
 FT_LOCATION = 22
+
+# 写入前会用这些集合拒绝只读字段，避免误写公式、系统时间等特殊列。
 READONLY_FIELD_TYPES = frozenset({FT_FORMULA, FT_AUTO_NUMBER, FT_CREATED_TIME, FT_MODIFIED_TIME, FT_CREATED_BY, FT_MODIFIED_BY})
 PRIMARY_WRITABLE_FIELD_TYPES = frozenset({FT_TEXT, FT_NUMBER, FT_SINGLE_SELECT, FT_MULTI_SELECT, FT_DATE, FT_CHECKBOX})
 
@@ -389,6 +393,21 @@ def _attachment_files(cell):
             files.append({'file_token': item, 'url': None})
     return files
 
+def _link_record_ids_display(cell):
+    """兼容飞书关联字段的几种返回形态，统一先提取 record_id 列表。"""
+    if isinstance(cell, dict):
+        ids = cell.get('link_record_ids') or cell.get('record_ids')
+        if isinstance(ids, list):
+            return [x.get('record_id', x) if isinstance(x, dict) else x for x in ids]
+        if ids is not None:
+            return [ids]
+        records = cell.get('records')
+        if isinstance(records, list):
+            return [x.get('record_id', x) if isinstance(x, dict) else x for x in records]
+    if isinstance(cell, list):
+        return [x.get('record_id', x) if isinstance(x, dict) else x for x in cell]
+    return cell
+
 def field_cell_display(field, cell):
     """将飞书记录中某一字段的原始 `cell` 转为便于调试/CSV 的展示值。"""
     t = int(field.type) if str(field.type).isdigit() else 0
@@ -437,8 +456,7 @@ def field_cell_display(field, cell):
         readable = _readable_cell_value(cell)
         return readable if readable is not None else cell
     if t in (18, 21, FT_DUPLEX_LINK):
-        if isinstance(cell, list):
-            return [x.get('record_id', x) if isinstance(x, dict) else x for x in cell]
+        return _link_record_ids_display(cell)
     readable = _readable_cell_value(cell)
     if not isinstance(readable, (dict, list)):
         return readable
@@ -954,6 +972,65 @@ def _search_records(ref, *, token, query_columns=None, filter_=None):
         body['filter'] = filter_
     return _paged_items(f'/bitable/v1/apps/{ref.app_token}/tables/{ref.table_id}/records/search', token=token, method='POST', json_body=body, page_size=500)
 
+def _primary_field(schema):
+    """关联记录展示时优先使用主字段；缺失主字段时退回第一列。"""
+    for field in schema.fields.values():
+        if field.is_primary:
+            return field
+    if schema.columns:
+        return schema.fields.get(schema.columns[0])
+    return None
+
+def _record_field_key(record, field):
+    """保持原始 record 的字段键风格，避免 field_id/name 混用时写错位置。"""
+    fields = record.get('fields') or {}
+    if field.field_id and field.field_id in fields:
+        return field.field_id
+    if field.field_name in fields:
+        return field.field_name
+    return field.field_name or field.field_id
+
+def _linked_record_display_map(app_token, table_id, table_name, *, token):
+    """读取关联表主字段，构造 record_id -> 展示值 的映射。"""
+    ref = TableViewRef(app_token=app_token, table_name=table_name or table_id, table_id=table_id)
+    schema = _fetch_view_schema(ref, token=token)
+    primary = _primary_field(schema)
+    if primary is None:
+        return {}
+    records = _search_records(ref, token=token, query_columns=[primary.field_name])
+    return {str(record.get('record_id')): field_cell_display(primary, get_field_raw(record, primary)) for record in records if record.get('record_id') and get_field_raw(record, primary) is not None}
+
+def _expand_link_record_displays(raw_records, schema, *, app_token, token):
+    """
+    将关联字段的 record_id 展开为关联表主字段展示值。
+
+    飞书 records/search 默认只返回关联记录 ID；为了让 RPA/CSV 结果更接近界面显示，
+    这里会按关联字段 property.table_id 额外读取一次关联表主字段。
+    """
+    link_fields = [field for field in schema.fields.values() if (int(field.type) if str(field.type).isdigit() else 0) in (18, 21, FT_DUPLEX_LINK) and isinstance(field.property, dict) and field.property.get('table_id')]
+    if not link_fields:
+        return raw_records
+    display_maps = {}
+    for field in link_fields:
+        linked_table_id = str(field.property.get('table_id'))
+        if linked_table_id not in display_maps:
+            display_maps[linked_table_id] = _linked_record_display_map(app_token, linked_table_id, field.property.get('table_name'), token=token)
+    expanded = []
+    for record in raw_records:
+        copied = dict(record)
+        fields = dict(record.get('fields') or {})
+        copied['fields'] = fields
+        for field in link_fields:
+            raw = get_field_raw(record, field)
+            ids = _link_record_ids_display(raw)
+            if not isinstance(ids, list):
+                continue
+            display_map = display_maps.get(str(field.property.get('table_id')), {})
+            values = [display_map.get(str(record_id), record_id) for record_id in ids]
+            fields[_record_field_key(record, field)] = values[0] if len(values) == 1 else values
+        expanded.append(copied)
+    return expanded
+
 def _read_record(ref, record_id, *, token):
     data = _feishu_request('GET', f'/bitable/v1/apps/{ref.app_token}/tables/{ref.table_id}/records/{record_id}', token=token)
     return (data.get('data') or {}).get('record') or data.get('data') or {}
@@ -1097,6 +1174,7 @@ def query_records_by_time(app_token, table_name, query_columns=None, time_column
     raw_records = _search_records(ref, token=token, query_columns=fetch_columns, filter_=filter_)
     if start_date or end_date:
         raw_records = _filter_records_by_local_date(raw_records, time_column=time_column, start_date=start_date, end_date=end_date)
+    raw_records = _expand_link_record_displays(raw_records, _schema_subset(schema, output_columns), app_token=app_token, token=token)
     return records_to_list_result(raw_records, _schema_subset(schema, output_columns), include_record_id_column=True)
 
 def dry_run_update_by_names(app_token, table_name, record_id, columns, values, view_name=None, table_id=None, credentials=None):

@@ -1,50 +1,53 @@
-# 飞书多维表 Skill
+# Feishu Bitable Skill
 
-这是一个 Python-only 的飞书/Lark 多维表自动化工具。它可以读取多维表记录，把飞书接口返回的嵌套 `fields` 结构转换成更适合脚本和 RPA 处理的二维列表，并提供带安全校验的查询、更新和新增能力。
+Python-only utilities for Feishu/Lark Bitable and Sheets automation. The project is designed for direct `import` in scripts, Cursor Skills, and RPA tools.
 
-## 功能
+## Highlights
 
-- 通过 `app_token`、`table_name` 和可选 `view_name` 查询多维表记录。
-- 将记录转换为 `columns`、`rows`、`rows_by_record_id`，同时保留 `record_id`。
-- 支持 `Today`、`Yesterday`、`CurrentMonth`、`LastMonth` 等相对时间条件。
-- 支持 `yyyy-mm-dd`、`yyyy/mm/dd`、`yyyy.mm.dd` 格式的精确日期和日期范围筛选。
-- 按字段名更新或新增记录，写入前会做 schema 校验和字段值归一化。
-- 默认 dry-run，只有显式传入 `confirm_write=True` 才会真实写入。
-- 在当前 Python 进程内缓存 tenant token、table/view ID 和 schema，减少重复请求。
-- 提供 RPA 专用版本，去掉函数参数和返回值类型注解，降低 RPA 解析问题。
+- Read Bitable records by `app_token`, table name, and optional view.
+- Convert Feishu nested `fields` into `columns`, `rows`, and `rows_by_record_id`.
+- Preserve `record_id` for reliable readback and updates.
+- Expand linked-record fields to the linked table primary value, so fields like `所属活动` can display `日常销售` instead of `rec...`.
+- Filter date columns with `Today`, `Yesterday`, `CurrentMonth`, `LastMonth`, exact dates, or inclusive date ranges.
+- Update and create records by field names with schema validation and value normalization.
+- Default to dry-run for writes; real writes require `confirm_write=True`.
+- Cache tenant tokens, table/view metadata, and schemas in the current Python process.
+- Include a no-type-annotation RPA version for automation platforms that struggle with typed Python.
 
-## 文件说明
+## Repository Layout
 
-- `feishu_bitable_utils.py`：主实现，保留类型注解，适合普通 Python 项目和 Cursor Skill。
-- `feishu_bitable_utils_rpa.py`：RPA 友好版本，移除了函数参数和返回值类型注解。
-- `feishu_sheets_utils_rpa.py`：在线表格 RPA 工具，支持按 sheet 名和列名查询/更新普通表格行。
-- `SKILL.md`：Cursor Skill 使用说明和详细设计约束。
-- `.env.example`：凭证配置模板。
-- `debug/`：本地调试示例和样例数据。
+| Path | Purpose |
+| --- | --- |
+| `feishu_bitable_utils.py` | Main Bitable utility with type hints. Best for Python projects and Cursor Skill use. |
+| `feishu_bitable_utils_rpa.py` | RPA-friendly Bitable utility without function type annotations. |
+| `feishu_sheets_utils_rpa.py` | Feishu Sheets helper for row lookup and update by sheet name and column name. |
+| `SKILL.md` | Cursor Skill instructions and implementation constraints. |
+| `.env.example` | Local credential template. |
+| `debug/` | Small local demos and sample API payloads. |
 
-## 运行要求
+## Requirements
 
 - Python 3.7+
 - `requests`
 
-如果运行环境没有安装 `requests`，可以执行：
+Install the only runtime dependency if your environment does not already provide it:
 
 ```bash
 pip install requests
 ```
 
-## 配置
+## Configuration
 
-在 Python 文件同目录创建本地 `.env`：
+Create a local `.env` file next to the Python files:
 
 ```env
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
 ```
 
-不要提交 `.env`，它已经被 `.gitignore` 排除。如果把脚本单文件复制到 RPA 环境，也可以直接填写文件顶部的 `FEISHU_APP_CREDENTIALS` 常量。
+`.env` is ignored by Git. Do not commit app secrets, tenant tokens, authorization headers, cookies, or exported browser state.
 
-多维表目标信息不是全局配置，需要在每次调用时传入：
+Bitable targets are business parameters, not global configuration. Pass them explicitly when calling functions:
 
 ```python
 app_token = "base_xxx"
@@ -52,12 +55,12 @@ table_name = "数据表"
 view_name = "默认视图"
 ```
 
-## 快速开始
+## Quick Start
 
 ```python
 from feishu_bitable_utils import query_records_by_time
 
-rows = query_records_by_time(
+result = query_records_by_time(
     app_token=app_token,
     table_name=table_name,
     time_column="申请时间",
@@ -65,14 +68,26 @@ rows = query_records_by_time(
     query_columns=["状态", "名称", "数量"],
 )
 
-print(rows.columns)
-print(rows.rows)
-print(rows.rows_by_record_id)
+print(result.columns)
+print(result.rows)
+print(result.rows_by_record_id)
 ```
 
-## 更新已有记录
+## Linked Records
 
-默认情况下，更新函数只返回 dry-run 预演报告，不会写入飞书：
+Linked-record fields are expanded automatically when records are read through `query_records_by_time`.
+
+For example, if `赠品配置表.所属活动` links to `活动周期表.活动名称`, the returned row displays:
+
+```python
+["recvm8boBWJE1l", "日常销售"]
+```
+
+If a cell links to multiple records, the value is returned as a list of linked primary-field values.
+
+## Update Records
+
+Update helpers are dry-run by default. This returns a preview and does not write to Feishu:
 
 ```python
 from feishu_bitable_utils import update_record_by_names
@@ -86,7 +101,7 @@ preview = update_record_by_names(
 )
 ```
 
-如果确认要真实写入，传入 `confirm_write=True`。高频 RPA 更新场景可以传 `readback=False`，跳过更新后的额外读回请求：
+Set `confirm_write=True` to perform the write. For high-frequency RPA jobs, set `readback=False` to skip the extra post-update read:
 
 ```python
 result = update_record_by_names(
@@ -100,7 +115,7 @@ result = update_record_by_names(
 )
 ```
 
-## 新增记录
+## Create Records
 
 ```python
 from feishu_bitable_utils import create_records_by_names
@@ -117,11 +132,11 @@ result = create_records_by_names(
 )
 ```
 
-传入多行时会自动使用飞书 `batch_create` 接口批量新增，默认每批最多 500 行。需要退回逐条创建时，可以传 `batch_size=1`。
+Multiple rows use Feishu `batch_create` automatically, with a default batch size of 500. Pass `batch_size=1` to create records one by one.
 
-## 在线表格查询与更新
+## Sheets Helpers
 
-`feishu_sheets_utils_rpa.py` 用于普通在线表格，不是多维表。它按第一行表头识别列名，并通过 sheet 名定位工作表。
+`feishu_sheets_utils_rpa.py` is for regular Feishu Sheets, not Bitable. It uses the first row as headers and locates columns by name.
 
 ```python
 from feishu_sheets_utils_rpa import (
@@ -143,7 +158,6 @@ matched_rows = query_sheet_rows_by_column(
     match_column="主播名",
     match_value="示例主播",
 )
-# 返回：{"columns": [...], "rows": [[...], [...]]}
 
 updated = update_sheet_row_by_column(
     spreadsheet_token=spreadsheet_token,
@@ -156,14 +170,44 @@ updated = update_sheet_row_by_column(
 )
 ```
 
-## RPA 使用
+## Public APIs
 
-如果 RPA 工具解析 Python 类型注解有问题，请使用 `feishu_bitable_utils_rpa.py`。它的公开函数行为与 `feishu_bitable_utils.py` 保持一致，但函数签名中不包含参数类型和返回值类型注解。
+### Bitable
 
-## 安全说明
+| Function | Description |
+| --- | --- |
+| `list_bitable_tables(app_token)` | List Bitable tables and views. |
+| `query_records_by_time(...)` | Read records, optionally filter by date, and return a `ListReadResult`. |
+| `dry_run_update_by_names(...)` | Preview a field-name-based update. |
+| `update_record_by_names(...)` | Update one record after validation. Defaults to dry-run. |
+| `create_records_by_names(...)` | Create one or more records after validation. Defaults to dry-run. |
+| `list_result_to_csv_string(result)` | Export a `ListReadResult` to CSV text. |
+| `clear_feishu_cache()` | Clear in-process token/table/view/schema caches. |
 
-- `.env`、Python 缓存文件、日志和构建产物都已被忽略。
-- 写入函数在调用飞书写接口前，会校验 schema、字段可写性和字段值类型。
-- `record_id` 被视为飞书记录技术主键，不会作为普通字段写回。
-- 如果长进程运行期间表名、视图名或 schema 发生变化，可以调用 `clear_feishu_cache()` 清空进程内缓存。
+### Sheets
 
+| Function | Description |
+| --- | --- |
+| `list_sheets(spreadsheet_token)` | List sheet names and IDs. |
+| `query_sheet_row_by_column(...)` | Return the first row where a column exactly matches a value. |
+| `query_sheet_rows_by_column(...)` | Return all rows where a column exactly matches a value. |
+| `update_sheet_row_by_column(...)` | Update columns in the first matched row. Defaults to dry-run. |
+| `clear_feishu_sheets_cache()` | Clear in-process Sheets caches. |
+
+## Safety Notes
+
+- Write helpers validate schema, field writability, and value types before calling write APIs.
+- `record_id` is treated as Feishu's technical primary key and is never written back as a normal field.
+- Read and write helpers resolve table/view names at runtime; pass `table_id` or `view_id` when names are duplicated.
+- If a long-running process sees stale table/view/schema data after a Feishu-side change, call `clear_feishu_cache()`.
+- Use `feishu_bitable_utils_rpa.py` when an RPA platform cannot parse Python type annotations.
+
+## Development
+
+Run a syntax check before publishing changes:
+
+```bash
+python3 -m py_compile feishu_bitable_utils.py feishu_bitable_utils_rpa.py feishu_sheets_utils_rpa.py
+```
+
+The `debug/` folder contains small examples for flattening records and dry-run update reports.
