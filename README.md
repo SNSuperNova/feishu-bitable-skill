@@ -8,6 +8,7 @@ Python-only utilities for Feishu/Lark Bitable and Sheets automation. The project
 - Convert Feishu nested `fields` into `columns`, `rows`, and `rows_by_record_id`.
 - Preserve `record_id` for reliable readback and updates.
 - Expand linked-record fields to the linked table primary value, so fields like `所属活动` can display `日常销售` instead of `rec...`.
+- Read raw linked-record `record_id` values from a linked-record column when automation needs IDs instead of display text.
 - Filter date columns with `Today`, `Yesterday`, `CurrentMonth`, `LastMonth`, exact dates, or inclusive date ranges.
 - Update and create records by field names with schema validation and value normalization.
 - Default to dry-run for writes; real writes require `confirm_write=True`.
@@ -84,6 +85,21 @@ For example, if `赠品配置表.所属活动` links to `活动周期表.活动�
 ```
 
 If a cell links to multiple records, the value is returned as a list of linked primary-field values.
+
+If you need the raw linked record IDs instead of display values, query the linked column directly:
+
+```python
+from feishu_bitable_utils import query_linked_record_ids_by_records
+
+linked = query_linked_record_ids_by_records(
+    app_token=app_token,
+    table_name=table_name,
+    record_ids=["recxxxx"],
+    column_name="关联活动机制",
+)
+
+# {"recxxxx": ["recyyyy"]}
+```
 
 ## Update Records
 
@@ -181,6 +197,7 @@ updated = update_sheet_row_by_column(
 | `dry_run_update_by_names(...)` | Preview a field-name-based update. |
 | `update_record_by_names(...)` | Update one record after validation. Defaults to dry-run. |
 | `create_records_by_names(...)` | Create one or more records after validation. Defaults to dry-run. |
+| `query_linked_record_ids_by_records(...)` | Read a linked-record column and return linked `record_id` values by source record. |
 | `list_result_to_csv_string(result)` | Export a `ListReadResult` to CSV text. |
 | `clear_feishu_cache()` | Clear in-process token/table/view/schema caches. |
 

@@ -30,6 +30,7 @@ from feishu_bitable_utils import (
     dry_run_update_by_names,
     update_record_by_names,
     create_records_by_names,
+    query_linked_record_ids_by_records,
 )
 ```
 
@@ -85,6 +86,7 @@ rows = query_records_by_time(
 | 更新预演          | `dry_run_update_by_names(app_token, table_name, record_id, columns, values)`                  |
 | 安全更新          | `update_record_by_names(..., confirm_write=True)`                                             |
 | 安全新增          | `create_records_by_names(app_token, table_name, columns, rows, confirm_write=True)`           |
+| 读取关联记录 ID     | `query_linked_record_ids_by_records(app_token, table_name, record_ids, column_name)`          |
 | 在线表格按列查询行     | `query_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value)`          |
 | 在线表格按列查询所有匹配行 | `query_sheet_rows_by_column(spreadsheet_token, sheet_name, match_column, match_value)`         |
 | 在线表格按匹配行更新列   | `update_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value, ...)`    |
@@ -100,6 +102,7 @@ rows = query_records_by_time(
 - 技术主键；读入后必须保留；`rows` 可第一列为 `record_id`；`rows_by_record_id` 以 `record_id` 为 key。
 - 回写时 **不可** 把 `record_id` 当普通业务字段写入 `fields`。
 - 无 `record_id` 的输入行视为**新增**（本模块可构造 `fields`；真正 `create` 由 MCP/HTTP 执行）。
+- 需要读取关联字段背后的原始关联记录 ID 时，使用 `query_linked_record_ids_by_records`，返回 `{源 record_id: [关联 record_id, ...]}`。
 
 ## 表/视图
 
@@ -175,5 +178,13 @@ create_result = create_records_by_names(
     columns=["名称", "数量", "状态"],
     rows=[["示例名称", 1, "待处理"]],
 )
-```
 
+# 查询指定记录的关联列，返回被关联记录的 record_id 列表。
+# 结果参考：{"recxxx": ["recyyy", "reczzz"]}
+linked_record_ids = query_linked_record_ids_by_records(
+    app_token=app_token,
+    table_name="示例数据表",
+    record_ids=["recxxx"],
+    column_name="关联活动机制",
+)
+```
