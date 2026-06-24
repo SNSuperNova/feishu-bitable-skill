@@ -1341,6 +1341,9 @@ def query_linked_record_ids_by_records(app_token, table_name, record_ids, column
     field = schema.fields.get(column_name)
     if field is None:
         raise KeyError(f'列 {column_name!r} 不存在. 可用列: {list(schema.fields)}')
+    field_type = int(field.type) if str(field.type).isdigit() else 0
+    if field_type not in (18, 21, FT_DUPLEX_LINK):
+        raise ValueError(f'列 {column_name!r} 不是关联字段，当前 type={field.type!r}，无法返回关联记录 ID')
     result = {}
     for record_id in record_ids:
         rid = str(record_id or '').strip()
