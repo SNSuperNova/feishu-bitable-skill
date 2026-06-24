@@ -595,6 +595,60 @@ def _link_record_ids_display(cell: Any) -> Any:
     return cell
 
 
+def _extract_link_record_ids(cell: Any) -> List[str]:
+    """从关联字段原始 cell 中提取关联记录 ID，保留原始 ID 字符串。"""
+    ids: List[str] = []
+
+    def add_one(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, dict):
+            nested = (
+                value.get("record_id")
+                or value.get("id")
+            )
+            if nested is not None:
+                ids.append(str(nested))
+            return
+        ids.append(str(value))
+
+    def add_many(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                add_one(item)
+        else:
+            add_one(value)
+
+    if isinstance(cell, dict):
+        if "link_record_ids" in cell:
+            add_many(cell.get("link_record_ids"))
+            return ids
+        if "record_ids" in cell:
+            add_many(cell.get("record_ids"))
+            return ids
+        if "records" in cell:
+            add_many(cell.get("records"))
+            return ids
+        add_one(cell)
+        return ids
+    if isinstance(cell, list):
+        for item in cell:
+            if isinstance(item, dict):
+                if "link_record_ids" in item:
+                    add_many(item.get("link_record_ids"))
+                elif "record_ids" in item:
+                    add_many(item.get("record_ids"))
+                elif "records" in item:
+                    add_many(item.get("records"))
+                else:
+                    add_one(item)
+            else:
+                add_one(item)
+        return ids
+    add_one(cell)
+    return ids
+
+
 def field_cell_display(
     field: TableField,
     cell: Any,
@@ -2052,6 +2106,45 @@ def create_records_by_names(
     }
 
 
+def query_linked_record_ids_by_records(
+    app_token: str,
+    table_name: str,
+    record_ids: List[str],
+    column_name: str,
+    view_name: Optional[str] = None,
+    table_id: Optional[str] = None,
+    credentials: Optional[FeishuAppCredentials] = None,
+) -> Dict[str, List[str]]:
+    """
+    读取一批记录的指定关联列，返回每条记录关联到的 record_id 列表。
+
+    返回:
+        `{"recxxx": ["recyyy", "reczzz"], ...}`
+    """
+    token = _get_tenant_access_token(credentials)
+    ref = _resolve_table_and_view(
+        app_token,
+        table_name,
+        view_name=view_name,
+        table_id=table_id,
+        token=token,
+    )
+    schema = _fetch_view_schema(ref, token=token)
+    field = schema.fields.get(column_name)
+    if field is None:
+        raise KeyError(f"列 {column_name!r} 不存在. 可用列: {list(schema.fields)}")
+
+    result: Dict[str, List[str]] = {}
+    for record_id in record_ids:
+        rid = str(record_id or "").strip()
+        if not rid:
+            continue
+        record = _read_record(ref, rid, token=token)
+        raw = get_field_raw(record, field)
+        result[rid] = _extract_link_record_ids(raw)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # CSV
 # ---------------------------------------------------------------------------
@@ -2171,6 +2264,15 @@ def _reference_usage_cases() -> None:
         ],
     )
 
+    # 查询指定记录的关联列，返回被关联记录的 record_id 列表。
+    # 结果参考：{"recxxx": ["recyyy", "reczzz"]}
+    linked_record_ids = query_linked_record_ids_by_records(
+        app_token=app_token,
+        table_name=table_name,
+        record_ids=["recxxxx"],
+        column_name="关联活动机制",
+    )
+
     _ = (
         tables,
         current_month_rows,
@@ -2180,6 +2282,7 @@ def _reference_usage_cases() -> None:
         dry_run,
         write_result,
         create_result,
+        linked_record_ids,
     )
 
 

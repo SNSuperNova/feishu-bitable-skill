@@ -415,6 +415,56 @@ def _link_record_ids_display(cell):
         return [x.get('record_id', x) if isinstance(x, dict) else x for x in cell]
     return cell
 
+def _extract_link_record_ids(cell):
+    """从关联字段原始 cell 中提取关联记录 ID，保留原始 ID 字符串。"""
+    ids = []
+
+    def add_one(value):
+        if value is None:
+            return
+        if isinstance(value, dict):
+            nested = value.get('record_id') or value.get('id')
+            if nested is not None:
+                ids.append(str(nested))
+            return
+        ids.append(str(value))
+
+    def add_many(value):
+        if isinstance(value, list):
+            for item in value:
+                add_one(item)
+        else:
+            add_one(value)
+
+    if isinstance(cell, dict):
+        if 'link_record_ids' in cell:
+            add_many(cell.get('link_record_ids'))
+            return ids
+        if 'record_ids' in cell:
+            add_many(cell.get('record_ids'))
+            return ids
+        if 'records' in cell:
+            add_many(cell.get('records'))
+            return ids
+        add_one(cell)
+        return ids
+    if isinstance(cell, list):
+        for item in cell:
+            if isinstance(item, dict):
+                if 'link_record_ids' in item:
+                    add_many(item.get('link_record_ids'))
+                elif 'record_ids' in item:
+                    add_many(item.get('record_ids'))
+                elif 'records' in item:
+                    add_many(item.get('records'))
+                else:
+                    add_one(item)
+            else:
+                add_one(item)
+        return ids
+    add_one(cell)
+    return ids
+
 def field_cell_display(field, cell):
     """将飞书记录中某一字段的原始 `cell` 转为便于调试/CSV 的展示值。"""
     t = int(field.type) if str(field.type).isdigit() else 0
@@ -1278,6 +1328,29 @@ def create_records_by_names(app_token, table_name, columns, rows, view_name=None
         batch_count += 1
     return {'ok': True, 'created': created, 'summary': {'created': len(created), 'request_count': batch_count}}
 
+def query_linked_record_ids_by_records(app_token, table_name, record_ids, column_name, view_name=None, table_id=None, credentials=None):
+    """
+    读取一批记录的指定关联列，返回每条记录关联到的 record_id 列表。
+
+    返回:
+        `{"recxxx": ["recyyy", "reczzz"], ...}`
+    """
+    token = _get_tenant_access_token(credentials)
+    ref = _resolve_table_and_view(app_token, table_name, view_name=view_name, table_id=table_id, token=token)
+    schema = _fetch_view_schema(ref, token=token)
+    field = schema.fields.get(column_name)
+    if field is None:
+        raise KeyError(f'列 {column_name!r} 不存在. 可用列: {list(schema.fields)}')
+    result = {}
+    for record_id in record_ids:
+        rid = str(record_id or '').strip()
+        if not rid:
+            continue
+        record = _read_record(ref, rid, token=token)
+        raw = get_field_raw(record, field)
+        result[rid] = _extract_link_record_ids(raw)
+    return result
+
 def list_result_to_csv_string(res):
     buf = StringIO()
     w = csv.writer(buf, lineterminator='\n')
@@ -1319,6 +1392,7 @@ def _reference_usage_cases():
     dry_run = dry_run_update_by_names(app_token=app_token, table_name=table_name, record_id='recxxxx', columns=['状态'], values=['已完成'])
     write_result = update_record_by_names(app_token=app_token, table_name=table_name, record_id='recxxxx', columns=['状态'], values=['已完成'], confirm_write=True)
     create_result = create_records_by_names(app_token=app_token, table_name=table_name, columns=['名称', '数量', '状态'], rows=[['示例名称 A', 1, '待处理'], ['示例名称 B', 2, '待处理']])
-    _ = (tables, all_rows, current_month_rows, yesterday_rows, specific_date_rows, range_rows, dry_run, write_result, create_result)
+    linked_record_ids = query_linked_record_ids_by_records(app_token=app_token, table_name=table_name, record_ids=['recxxxx'], column_name='关联活动机制')
+    _ = (tables, all_rows, current_month_rows, yesterday_rows, specific_date_rows, range_rows, dry_run, write_result, create_result, linked_record_ids)
 if __name__ == '__main__':
     print('feishu_bitable_utils.py 提供 RPA 可直接 import 的函数；请查看文件底部 _reference_usage_cases() 中的调用案例。')

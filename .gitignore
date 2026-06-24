@@ -1,7 +1,9 @@
 .env
 .env.*
 !.env.example
+.DS_Store
 __pycache__/
+debug/test.py
 *.py[cod]
 *.pyo
 *.pyd
