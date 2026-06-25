@@ -1234,6 +1234,26 @@ def query_records_by_time(app_token, table_name, query_columns=None, time_column
     raw_records = _expand_link_record_displays(raw_records, _schema_subset(schema, output_columns), app_token=app_token, token=token)
     return records_to_list_result(raw_records, _schema_subset(schema, output_columns), include_record_id_column=True)
 
+def query_records_by_ids(app_token, table_name, record_ids, query_columns=None, view_name=None, table_id=None, view_id=None, credentials=None):
+    """
+    按飞书 record_id 列表查询记录，并返回和 query_records_by_time 一致的二维列表结构。
+
+    返回:
+        `ListReadResult(columns=[...], rows=[...], rows_by_record_id={...}, raw_records=[...], schema=...)`
+    """
+    token = _get_tenant_access_token(credentials)
+    ref = _resolve_table_and_view(app_token, table_name, view_name=view_name, table_id=table_id, view_id=view_id, token=token)
+    schema = _fetch_view_schema(ref, token=token)
+    output_columns = query_columns or list(schema.columns)
+    for col in output_columns:
+        if col not in schema.fields:
+            raise KeyError(f'列 {col!r} 不存在. 可用列: {list(schema.fields)}')
+    cleaned_record_ids = list(dict.fromkeys(str(record_id or '').strip() for record_id in record_ids))
+    raw_records = [_read_record(ref, record_id, token=token) for record_id in cleaned_record_ids if record_id]
+    sub_schema = _schema_subset(schema, output_columns)
+    raw_records = _expand_link_record_displays(raw_records, sub_schema, app_token=app_token, token=token)
+    return records_to_list_result(raw_records, sub_schema, include_record_id_column=True)
+
 def dry_run_update_by_names(app_token, table_name, record_id, columns, values, view_name=None, table_id=None, credentials=None):
     """
     用字段名列表和单行值生成更新预演，不写入飞书。
@@ -1392,10 +1412,11 @@ def _reference_usage_cases():
     yesterday_rows = query_records_by_time(app_token=app_token, table_name=table_name, time_column='申请时间', condition='Yesterday', query_columns=['状态', '名称', '数量'])
     specific_date_rows = query_records_by_time(app_token=app_token, table_name=table_name, time_column='申请时间', start_date='2026/04/28', end_date='2026/04/28')
     range_rows = query_records_by_time(app_token=app_token, table_name=table_name, time_column='申请时间', start_date='2026-04-26', end_date='2026-04-28', query_columns=['状态', '名称', '数量'])
+    selected_rows = query_records_by_ids(app_token=app_token, table_name=table_name, record_ids=['recxxxx'], query_columns=['状态', '名称'])
     dry_run = dry_run_update_by_names(app_token=app_token, table_name=table_name, record_id='recxxxx', columns=['状态'], values=['已完成'])
     write_result = update_record_by_names(app_token=app_token, table_name=table_name, record_id='recxxxx', columns=['状态'], values=['已完成'], confirm_write=True)
     create_result = create_records_by_names(app_token=app_token, table_name=table_name, columns=['名称', '数量', '状态'], rows=[['示例名称 A', 1, '待处理'], ['示例名称 B', 2, '待处理']])
     linked_record_ids = query_linked_record_ids_by_records(app_token=app_token, table_name=table_name, record_ids=['recxxxx'], column_name='关联活动机制')
-    _ = (tables, all_rows, current_month_rows, yesterday_rows, specific_date_rows, range_rows, dry_run, write_result, create_result, linked_record_ids)
+    _ = (tables, all_rows, current_month_rows, yesterday_rows, specific_date_rows, range_rows, selected_rows, dry_run, write_result, create_result, linked_record_ids)
 if __name__ == '__main__':
     print('feishu_bitable_utils.py 提供 RPA 可直接 import 的函数；请查看文件底部 _reference_usage_cases() 中的调用案例。')

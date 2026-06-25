@@ -1912,6 +1912,59 @@ def query_records_by_time(
     )
 
 
+def query_records_by_ids(
+    app_token: str,
+    table_name: str,
+    record_ids: List[str],
+    query_columns: Optional[List[str]] = None,
+    view_name: Optional[str] = None,
+    table_id: Optional[str] = None,
+    view_id: Optional[str] = None,
+    credentials: Optional[FeishuAppCredentials] = None,
+) -> ListReadResult:
+    """
+    按飞书 record_id 列表查询记录，并返回和 query_records_by_time 一致的二维列表结构。
+
+    返回:
+        `ListReadResult(columns=[...], rows=[...], rows_by_record_id={...}, raw_records=[...], schema=...)`
+    """
+    token = _get_tenant_access_token(credentials)
+    ref = _resolve_table_and_view(
+        app_token,
+        table_name,
+        view_name=view_name,
+        table_id=table_id,
+        view_id=view_id,
+        token=token,
+    )
+    schema = _fetch_view_schema(ref, token=token)
+    output_columns = query_columns or list(schema.columns)
+    for col in output_columns:
+        if col not in schema.fields:
+            raise KeyError(f"列 {col!r} 不存在. 可用列: {list(schema.fields)}")
+
+    cleaned_record_ids = list(
+        dict.fromkeys(str(record_id or "").strip() for record_id in record_ids)
+    )
+    raw_records = [
+        _read_record(ref, record_id, token=token)
+        for record_id in cleaned_record_ids
+        if record_id
+    ]
+    sub_schema = _schema_subset(schema, output_columns)
+    raw_records = _expand_link_record_displays(
+        raw_records,
+        sub_schema,
+        app_token=app_token,
+        token=token,
+    )
+    return records_to_list_result(
+        raw_records,
+        sub_schema,
+        include_record_id_column=True,
+    )
+
+
 def dry_run_update_by_names(
     app_token: str,
     table_name: str,
@@ -2237,6 +2290,15 @@ def _reference_usage_cases() -> None:
         query_columns=["状态", "名称", "数量"],
     )
 
+    # 按飞书 record_id 列表读取记录，返回结构和 query_records_by_time 一致。
+    # 结果参考：ListReadResult(columns=["record_id","状态","名称"], rows=[["recxxx","待处理","示例名称"]], ...)
+    selected_rows = query_records_by_ids(
+        app_token=app_token,
+        table_name=table_name,
+        record_ids=["recxxxx"],
+        query_columns=["状态", "名称"],
+    )
+
     # 生成指定记录的更新预演，返回 dry-run 结构化报告，不写入飞书。
     # 结果参考：{"ok": true, "summary": {"patch_count": 1, "to_update": 1, "to_skip": 0}, "dry_run": true}
     dry_run = dry_run_update_by_names(
@@ -2285,6 +2347,7 @@ def _reference_usage_cases() -> None:
         yesterday_rows,
         specific_date_rows,
         range_rows,
+        selected_rows,
         dry_run,
         write_result,
         create_result,

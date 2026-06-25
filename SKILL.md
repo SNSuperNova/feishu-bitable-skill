@@ -27,6 +27,7 @@
 from feishu_bitable_utils import (
     list_bitable_tables,
     query_records_by_time,
+    query_records_by_ids,
     dry_run_update_by_names,
     update_record_by_names,
     create_records_by_names,
@@ -83,6 +84,7 @@ rows = query_records_by_time(
 | ------------- | --------------------------------------------------------------------------------------------- |
 | 列出 table/view | `list_bitable_tables(app_token)`                                                              |
 | 按时间查询并返回二维结构  | `query_records_by_time(app_token, table_name, time_column, ...)`                              |
+| 按记录 ID 查询并返回二维结构 | `query_records_by_ids(app_token, table_name, record_ids, query_columns=...)`                  |
 | 更新预演          | `dry_run_update_by_names(app_token, table_name, record_id, columns, values)`                  |
 | 安全更新          | `update_record_by_names(..., confirm_write=True)`                                             |
 | 安全新增          | `create_records_by_names(app_token, table_name, columns, rows, confirm_write=True)`           |

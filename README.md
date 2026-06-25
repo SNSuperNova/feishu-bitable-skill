@@ -59,7 +59,7 @@ view_name = "默认视图"
 ## Quick Start
 
 ```python
-from feishu_bitable_utils import query_records_by_time
+from feishu_bitable_utils import query_records_by_time, query_records_by_ids
 
 result = query_records_by_time(
     app_token=app_token,
@@ -72,11 +72,18 @@ result = query_records_by_time(
 print(result.columns)
 print(result.rows)
 print(result.rows_by_record_id)
+
+selected = query_records_by_ids(
+    app_token=app_token,
+    table_name=table_name,
+    record_ids=["recxxxx"],
+    query_columns=["状态", "名称"],
+)
 ```
 
 ## Linked Records
 
-Linked-record fields are expanded automatically when records are read through `query_records_by_time`.
+Linked-record fields are expanded automatically when records are read through `query_records_by_time` or `query_records_by_ids`.
 
 For example, if `赠品配置表.所属活动` links to `活动周期表.活动名称`, the returned row displays:
 
@@ -194,6 +201,7 @@ updated = update_sheet_row_by_column(
 | --- | --- |
 | `list_bitable_tables(app_token)` | List Bitable tables and views. |
 | `query_records_by_time(...)` | Read records, optionally filter by date, and return a `ListReadResult`. |
+| `query_records_by_ids(...)` | Read records by Feishu `record_id` list and return a `ListReadResult`. |
 | `dry_run_update_by_names(...)` | Preview a field-name-based update. |
 | `update_record_by_names(...)` | Update one record after validation. Defaults to dry-run. |
 | `create_records_by_names(...)` | Create one or more records after validation. Defaults to dry-run. |
