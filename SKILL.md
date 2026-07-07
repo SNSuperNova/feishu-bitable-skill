@@ -106,6 +106,7 @@ rows = query_records_by_time(
 - 回写时 **不可** 把 `record_id` 当普通业务字段写入 `fields`。
 - 无 `record_id` 的输入行视为**新增**（本模块可构造 `fields`；真正 `create` 由 MCP/HTTP 执行）。
 - 需要读取关联字段背后的原始关联记录 ID 时，使用 `query_linked_record_ids_by_records`，返回 `{源 record_id: [关联 record_id, ...]}`。
+- 在线表格 Sheets 的富文本/链接对象单元格应解析为可读展示值；`row_dicts` 遇到重复表头时使用 `_2`、`_3` 后缀保留所有列。
 
 ## 表/视图
 

@@ -199,6 +199,8 @@ updated = update_sheet_row_by_column(
 )
 ```
 
+Sheets rich-text cells returned as objects, such as `{"type": "url", "text": "...", "link": "..."}`, are normalized to readable values. Duplicate headers are preserved in `row_dicts` with suffixes such as `签约人_2`.
+
 ## Public APIs
 
 ### Bitable

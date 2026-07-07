@@ -163,7 +163,7 @@ def _col_index_to_letter(index):
 
 def _trim_empty_tail(values):
     out = list(values or [])
-    while out and (out[-1] is None or out[-1] == ""):
+    while out and _normalize_cell(out[-1]) == "":
         out.pop()
     return out
 
@@ -176,9 +176,45 @@ def _trim_empty_row_tail(rows):
 
 
 def _normalize_cell(value):
+    value = _sheet_cell_display(value)
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _sheet_cell_display(cell):
+    """把飞书 Sheets 富文本/链接对象压成 RPA 友好的展示值。"""
+    if cell is None:
+        return None
+    if isinstance(cell, list):
+        values = [_sheet_cell_display(item) for item in cell]
+        values = [value for value in values if value is not None]
+        if not values:
+            return None
+        if all(isinstance(value, str) for value in values):
+            return "".join(values)
+        return values[0] if len(values) == 1 else values
+    if isinstance(cell, dict):
+        if isinstance(cell.get("value"), list):
+            return _sheet_cell_display(cell.get("value"))
+        if cell.get("text") is not None:
+            return cell.get("text")
+        if cell.get("name") is not None:
+            return cell.get("name")
+        if cell.get("link") is not None:
+            return cell.get("link")
+        if cell.get("record_id") is not None:
+            return cell.get("record_id")
+        if cell.get("date") is not None:
+            return cell.get("date")
+        if cell.get("text_arr") is not None:
+            return _sheet_cell_display(cell.get("text_arr"))
+        return cell
+    return cell
+
+
+def _sheet_row_display(row_values):
+    return [_sheet_cell_display(value) for value in (row_values or [])]
 
 
 def _match_value(cell_value, expected, exact_match=True, case_sensitive=True):
@@ -315,7 +351,7 @@ def _read_sheet_table(spreadsheet_token, sheet_name, token, header_row=1, max_ro
             "range": range_name,
         }
     headers = [_normalize_cell(x) for x in _trim_empty_tail(values[0])]
-    rows = values[1:]
+    rows = [_sheet_row_display(row_values) for row_values in values[1:]]
     return {
         "sheet": sheet,
         "headers": headers,
@@ -335,9 +371,20 @@ def _column_index(headers, column_name):
     return matches[0]
 
 
+def _unique_headers(headers):
+    counts = {}
+    unique = []
+    for idx, name in enumerate(headers or []):
+        base = _normalize_cell(name) or "列" + str(idx + 1)
+        count = counts.get(base, 0) + 1
+        counts[base] = count
+        unique.append(base if count == 1 else base + "_" + str(count))
+    return unique
+
+
 def _row_to_dict(headers, row_values):
     result = {}
-    for idx, name in enumerate(headers):
+    for idx, name in enumerate(_unique_headers(headers)):
         result[name] = row_values[idx] if idx < len(row_values) else None
     return result
 
