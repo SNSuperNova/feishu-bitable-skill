@@ -4,8 +4,9 @@
 只依赖标准库和 requests。面向 RPA 直接 import 函数调用，不使用函数参数/返回值类型注解。
 
 主要能力：
-1. 按 sheet 名、列名、匹配值查询匹配行。
-2. 按 sheet 名、定位列匹配行，并更新该行指定列。
+1. 按 sheet 名读取整页数据。
+2. 按 sheet 名、列名、匹配值查询匹配行。
+3. 按 sheet 名、定位列匹配行，并更新该行指定列。
 """
 import os
 import time as _time
@@ -163,6 +164,13 @@ def _col_index_to_letter(index):
 def _trim_empty_tail(values):
     out = list(values or [])
     while out and (out[-1] is None or out[-1] == ""):
+        out.pop()
+    return out
+
+
+def _trim_empty_row_tail(rows):
+    out = list(rows or [])
+    while out and not _trim_empty_tail(out[-1]):
         out.pop()
     return out
 
@@ -334,6 +342,34 @@ def _row_to_dict(headers, row_values):
     return result
 
 
+def query_sheet_all_rows(spreadsheet_token, sheet_name, header_row=1, max_rows=None, max_columns=None):
+    """
+    查询指定名称 sheet 页的全部数据。
+
+    默认把第 1 行作为表头，返回:
+        {
+            "sheet_id": "...",
+            "sheet_name": "...",
+            "columns": [...],
+            "rows": [[...], [...]],
+            "row_dicts": [{"列名": "值"}],
+            "range": "sheet_id!A1:Z100"
+        }
+    """
+    token = _get_tenant_access_token()
+    table = _read_sheet_table(spreadsheet_token, sheet_name, token, header_row, max_rows, max_columns)
+    headers = table.get("headers") or []
+    rows = _trim_empty_row_tail(table.get("rows") or [])
+    return {
+        "sheet_id": table.get("sheet", {}).get("sheet_id"),
+        "sheet_name": sheet_name,
+        "columns": headers,
+        "rows": rows,
+        "row_dicts": [_row_to_dict(headers, row_values) for row_values in rows],
+        "range": table.get("range"),
+    }
+
+
 def query_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value):
     """
     查询指定 sheet 中某列内容匹配的第一行。
@@ -493,6 +529,11 @@ def _reference_usage_cases():
     spreadsheet_token = "shtcn_xxx"
     sheet_name = "示例Sheet"
 
+    all_rows = query_sheet_all_rows(
+        spreadsheet_token=spreadsheet_token,
+        sheet_name=sheet_name,
+    )
+
     matched = query_sheet_row_by_column(
         spreadsheet_token=spreadsheet_token,
         sheet_name=sheet_name,
@@ -510,7 +551,7 @@ def _reference_usage_cases():
         confirm_write=True,
     )
 
-    _ = (matched, updated)
+    _ = (all_rows, matched, updated)
 
 
 if __name__ == "__main__":

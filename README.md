@@ -163,9 +163,15 @@ Multiple rows use Feishu `batch_create` automatically, with a default batch size
 
 ```python
 from feishu_sheets_utils_rpa import (
+    query_sheet_all_rows,
     query_sheet_row_by_column,
     query_sheet_rows_by_column,
     update_sheet_row_by_column,
+)
+
+all_rows = query_sheet_all_rows(
+    spreadsheet_token=spreadsheet_token,
+    sheet_name="示例Sheet",
 )
 
 matched = query_sheet_row_by_column(
@@ -214,6 +220,7 @@ updated = update_sheet_row_by_column(
 | Function | Description |
 | --- | --- |
 | `list_sheets(spreadsheet_token)` | List sheet names and IDs. |
+| `query_sheet_all_rows(...)` | Return all rows from a sheet by sheet name. |
 | `query_sheet_row_by_column(...)` | Return the first row where a column exactly matches a value. |
 | `query_sheet_rows_by_column(...)` | Return all rows where a column exactly matches a value. |
 | `update_sheet_row_by_column(...)` | Update columns in the first matched row. Defaults to dry-run. |
