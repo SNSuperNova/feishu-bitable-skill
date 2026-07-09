@@ -86,12 +86,14 @@ class ViewSchema:
 
 class ListReadResult:
 
-    def __init__(self, columns, rows, rows_by_record_id, raw_records, schema):
+    def __init__(self, columns, rows, rows_by_record_id, raw_records, schema, errors=None, warnings=None):
         self.columns = columns
         self.rows = rows
         self.rows_by_record_id = rows_by_record_id
         self.raw_records = raw_records
         self.schema = schema
+        self.errors = errors or []
+        self.warnings = warnings or []
 
 class TimeFilter:
 
@@ -553,7 +555,7 @@ def flatten_records(raw_records, schema=None):
         out.append(row)
     return out
 
-def records_to_list_result(raw_records, schema, include_record_id_column=True):
+def records_to_list_result(raw_records, schema, include_record_id_column=True, errors=None, warnings=None):
     col_names = ['record_id', *schema.columns] if include_record_id_column else list(schema.columns)
     rows = []
     rbr = {}
@@ -572,7 +574,7 @@ def records_to_list_result(raw_records, schema, include_record_id_column=True):
             rows.append([rid, *rvals])
         else:
             rows.append(rvals)
-    return ListReadResult(columns=col_names, rows=rows, rows_by_record_id=rbr, raw_records=raw_records, schema=schema)
+    return ListReadResult(columns=col_names, rows=rows, rows_by_record_id=rbr, raw_records=raw_records, schema=schema, errors=errors or [], warnings=warnings or [])
 TCOND_LAST = 'LastMonth'
 TCOND_CURRENT = 'CurrentMonth'
 TCOND_YESTERDAY = 'Yesterday'
@@ -1239,7 +1241,7 @@ def query_records_by_ids(app_token, table_name, record_ids, query_columns=None, 
     按飞书 record_id 列表查询记录，并返回和 query_records_by_time 一致的二维列表结构。
 
     返回:
-        `ListReadResult(columns=[...], rows=[...], rows_by_record_id={...}, raw_records=[...], schema=...)`
+        `ListReadResult(columns=[...], rows=[...], rows_by_record_id={...}, raw_records=[...], schema=..., errors=[...])`
     """
     token = _get_tenant_access_token(credentials)
     ref = _resolve_table_and_view(app_token, table_name, view_name=view_name, table_id=table_id, view_id=view_id, token=token)
@@ -1249,10 +1251,23 @@ def query_records_by_ids(app_token, table_name, record_ids, query_columns=None, 
         if col not in schema.fields:
             raise KeyError(f'列 {col!r} 不存在. 可用列: {list(schema.fields)}')
     cleaned_record_ids = list(dict.fromkeys(str(record_id or '').strip() for record_id in record_ids))
-    raw_records = [_read_record(ref, record_id, token=token) for record_id in cleaned_record_ids if record_id]
+    raw_records = []
+    errors = []
+    for record_id in cleaned_record_ids:
+        if not record_id:
+            continue
+        try:
+            record = _read_record(ref, record_id, token=token)
+        except Exception as exc:
+            errors.append({'record_id': record_id, 'error': str(exc)})
+            continue
+        if not record or not record.get('record_id'):
+            errors.append({'record_id': record_id, 'error': '记录不存在或接口未返回记录内容'})
+            continue
+        raw_records.append(record)
     sub_schema = _schema_subset(schema, output_columns)
     raw_records = _expand_link_record_displays(raw_records, sub_schema, app_token=app_token, token=token)
-    return records_to_list_result(raw_records, sub_schema, include_record_id_column=True)
+    return records_to_list_result(raw_records, sub_schema, include_record_id_column=True, errors=errors)
 
 def dry_run_update_by_names(app_token, table_name, record_id, columns, values, view_name=None, table_id=None, credentials=None):
     """

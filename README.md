@@ -81,6 +81,8 @@ selected = query_records_by_ids(
 )
 ```
 
+When `query_records_by_ids` cannot read one of the requested record IDs, it skips that ID and appends `{"record_id": "...", "error": "..."}` to `result.errors`.
+
 ## Linked Records
 
 Linked-record fields are expanded automatically when records are read through `query_records_by_time` or `query_records_by_ids`.
@@ -209,7 +211,7 @@ Sheets rich-text cells returned as objects, such as `{"type": "url", "text": "..
 | --- | --- |
 | `list_bitable_tables(app_token)` | List Bitable tables and views. |
 | `query_records_by_time(...)` | Read records, optionally filter by date, and return a `ListReadResult`. |
-| `query_records_by_ids(...)` | Read records by Feishu `record_id` list and return a `ListReadResult`. |
+| `query_records_by_ids(...)` | Read records by Feishu `record_id` list, skip missing IDs, and return a `ListReadResult`. |
 | `dry_run_update_by_names(...)` | Preview a field-name-based update. |
 | `update_record_by_names(...)` | Update one record after validation. Defaults to dry-run. |
 | `create_records_by_names(...)` | Create one or more records after validation. Defaults to dry-run. |

@@ -127,6 +127,8 @@ class ListReadResult:
     rows_by_record_id: Dict[str, List[Any]]
     raw_records: List[Dict[str, Any]]
     schema: ViewSchema
+    errors: List[Dict[str, str]] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -752,6 +754,8 @@ def records_to_list_result(
     raw_records: List[Dict[str, Any]],
     schema: ViewSchema,
     include_record_id_column: bool = True,
+    errors: Optional[List[Dict[str, str]]] = None,
+    warnings: Optional[List[str]] = None,
 ) -> ListReadResult:
     col_names: List[str] = (
         ["record_id", *schema.columns] if include_record_id_column else list(schema.columns)
@@ -781,6 +785,8 @@ def records_to_list_result(
         rows_by_record_id=rbr,
         raw_records=raw_records,
         schema=schema,
+        errors=errors or [],
+        warnings=warnings or [],
     )
 
 
@@ -1926,7 +1932,7 @@ def query_records_by_ids(
     按飞书 record_id 列表查询记录，并返回和 query_records_by_time 一致的二维列表结构。
 
     返回:
-        `ListReadResult(columns=[...], rows=[...], rows_by_record_id={...}, raw_records=[...], schema=...)`
+        `ListReadResult(columns=[...], rows=[...], rows_by_record_id={...}, raw_records=[...], schema=..., errors=[...])`
     """
     token = _get_tenant_access_token(credentials)
     ref = _resolve_table_and_view(
@@ -1946,11 +1952,20 @@ def query_records_by_ids(
     cleaned_record_ids = list(
         dict.fromkeys(str(record_id or "").strip() for record_id in record_ids)
     )
-    raw_records = [
-        _read_record(ref, record_id, token=token)
-        for record_id in cleaned_record_ids
-        if record_id
-    ]
+    raw_records: List[Dict[str, Any]] = []
+    errors: List[Dict[str, str]] = []
+    for record_id in cleaned_record_ids:
+        if not record_id:
+            continue
+        try:
+            record = _read_record(ref, record_id, token=token)
+        except Exception as exc:
+            errors.append({"record_id": record_id, "error": str(exc)})
+            continue
+        if not record or not record.get("record_id"):
+            errors.append({"record_id": record_id, "error": "记录不存在或接口未返回记录内容"})
+            continue
+        raw_records.append(record)
     sub_schema = _schema_subset(schema, output_columns)
     raw_records = _expand_link_record_displays(
         raw_records,
@@ -1962,6 +1977,7 @@ def query_records_by_ids(
         raw_records,
         sub_schema,
         include_record_id_column=True,
+        errors=errors,
     )
 
 
