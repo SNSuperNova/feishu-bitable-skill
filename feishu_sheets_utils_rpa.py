@@ -7,6 +7,7 @@
 1. 按 sheet 名读取整页数据。
 2. 按 sheet 名、列名、匹配值查询匹配行。
 3. 按 sheet 名、定位列匹配行，并更新该行指定列。
+4. 按表头清理或批量写入第 2 行往下的数据。
 """
 import os
 import time as _time
@@ -334,6 +335,17 @@ def _batch_update_values(spreadsheet_token, value_ranges, token):
     return data.get("data") or data
 
 
+def _apply_value_ranges(spreadsheet_token, value_ranges, token):
+    try:
+        api_result = _batch_update_values(spreadsheet_token, value_ranges, token)
+        return api_result, 1, []
+    except Exception as batch_exc:
+        responses = []
+        for value_range in value_ranges:
+            responses.append(_update_values(spreadsheet_token, value_range.get("range"), value_range.get("values"), token))
+        return responses, len(value_ranges), ["batch_update 失败，已退回逐列更新: " + str(batch_exc)]
+
+
 def _read_sheet_table(spreadsheet_token, sheet_name, token, header_row=1, max_rows=None, max_columns=None):
     """按第一行表头读取二维区域，后续查询/更新都基于列名定位。"""
     sheet = _resolve_sheet(spreadsheet_token, sheet_name, token)
@@ -371,6 +383,24 @@ def _column_index(headers, column_name):
     return matches[0]
 
 
+def _target_headers(headers):
+    if isinstance(headers, str):
+        result = [_normalize_cell(headers)]
+    else:
+        result = [_normalize_cell(header) for header in (headers or [])]
+    result = [header for header in result if header]
+    if not result:
+        raise ValueError("表头不能为空")
+    return result
+
+
+def _column_indexes_by_headers(headers, target_headers):
+    indexes = {}
+    for header in target_headers:
+        indexes[header] = _column_index(headers, header)
+    return indexes
+
+
 def _unique_headers(headers):
     counts = {}
     unique = []
@@ -386,6 +416,112 @@ def _row_to_dict(headers, row_values):
     result = {}
     for idx, name in enumerate(_unique_headers(headers)):
         result[name] = row_values[idx] if idx < len(row_values) else None
+    return result
+
+
+def clear_sheet_columns_by_headers(spreadsheet_token, sheet_name, headers, header_row=1, start_row=2, end_row=None, confirm_write=False):
+    """
+    按指定表头清理下面所有行数据。
+
+    默认从第 2 行开始清理到 sheet 当前最大行数；传 confirm_write=True 才真实写入空值。
+    """
+    target_headers = _target_headers(headers)
+    token = _get_tenant_access_token()
+    table = _read_sheet_table(spreadsheet_token, sheet_name, token, header_row, 1, None)
+    sheet = table.get("sheet") or {}
+    sheet_id = sheet.get("sheet_id")
+    sheet_row_count = int(sheet.get("row_count") or 5000)
+    start_row = int(start_row)
+    end_row = int(end_row or sheet_row_count)
+    if start_row <= int(header_row):
+        raise ValueError("start_row 必须大于 header_row")
+    if end_row < start_row:
+        raise ValueError("end_row 必须大于等于 start_row")
+
+    column_indexes = _column_indexes_by_headers(table.get("headers") or [], target_headers)
+    row_count = end_row - start_row + 1
+    value_ranges = []
+    preview = []
+    for header in target_headers:
+        idx = column_indexes[header]
+        col_letter = _col_index_to_letter(idx + 1)
+        range_name = "%s!%s%s:%s%s" % (sheet_id, col_letter, start_row, col_letter, end_row)
+        values = [[""] for _ in range(row_count)]
+        value_ranges.append({"range": range_name, "values": values})
+        preview.append({"header": header, "range": range_name, "rows": row_count})
+
+    result = {
+        "ok": True,
+        "sheet_id": sheet_id,
+        "sheet_name": sheet_name,
+        "headers": target_headers,
+        "clears": preview,
+        "dry_run": not confirm_write,
+    }
+    if not confirm_write:
+        return result
+
+    api_result, request_count, warnings = _apply_value_ranges(spreadsheet_token, value_ranges, token)
+    result["api_response"] = api_result
+    result["request_count"] = request_count
+    if warnings:
+        result["warnings"] = warnings
+    result["dry_run"] = False
+    return result
+
+
+def write_sheet_rows_by_headers(spreadsheet_token, sheet_name, headers, rows, header_row=1, start_row=2, confirm_write=False):
+    """
+    按指定表头从第 2 行向下写入数据。
+
+    rows 支持二维列表，也支持字典列表；传 confirm_write=True 才真实写入。
+    """
+    target_headers = _target_headers(headers)
+    rows = list(rows or [])
+    token = _get_tenant_access_token()
+    table = _read_sheet_table(spreadsheet_token, sheet_name, token, header_row, 1, None)
+    sheet_id = table.get("sheet", {}).get("sheet_id")
+    start_row = int(start_row)
+    if start_row <= int(header_row):
+        raise ValueError("start_row 必须大于 header_row")
+    column_indexes = _column_indexes_by_headers(table.get("headers") or [], target_headers)
+
+    value_ranges = []
+    preview = []
+    if rows:
+        end_row = start_row + len(rows) - 1
+        for header_pos, header in enumerate(target_headers):
+            idx = column_indexes[header]
+            col_letter = _col_index_to_letter(idx + 1)
+            range_name = "%s!%s%s:%s%s" % (sheet_id, col_letter, start_row, col_letter, end_row)
+            values = []
+            for row in rows:
+                if isinstance(row, dict):
+                    value = row.get(header)
+                else:
+                    value = row[header_pos] if header_pos < len(row) else None
+                values.append(["" if value is None else value])
+            value_ranges.append({"range": range_name, "values": values})
+            preview.append({"header": header, "range": range_name, "rows": len(rows)})
+
+    result = {
+        "ok": True,
+        "sheet_id": sheet_id,
+        "sheet_name": sheet_name,
+        "headers": target_headers,
+        "row_count": len(rows),
+        "writes": preview,
+        "dry_run": not confirm_write,
+    }
+    if not confirm_write or not value_ranges:
+        return result
+
+    api_result, request_count, warnings = _apply_value_ranges(spreadsheet_token, value_ranges, token)
+    result["api_response"] = api_result
+    result["request_count"] = request_count
+    if warnings:
+        result["warnings"] = warnings
+    result["dry_run"] = False
     return result
 
 
@@ -556,18 +692,11 @@ def update_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, matc
     if not confirm_write:
         return result
 
-    try:
-        # 优先批量更新；部分租户/权限组合失败时再退回逐列写，提升兼容性。
-        api_result = _batch_update_values(spreadsheet_token, value_ranges, token)
-        result["api_response"] = api_result
-        result["request_count"] = 1
-    except Exception as batch_exc:
-        responses = []
-        for value_range in value_ranges:
-            responses.append(_update_values(spreadsheet_token, value_range.get("range"), value_range.get("values"), token))
-        result["api_response"] = responses
-        result["request_count"] = len(value_ranges)
-        result["warnings"] = ["batch_update 失败，已退回逐列更新: " + str(batch_exc)]
+    api_result, request_count, warnings = _apply_value_ranges(spreadsheet_token, value_ranges, token)
+    result["api_response"] = api_result
+    result["request_count"] = request_count
+    if warnings:
+        result["warnings"] = warnings
     result["dry_run"] = False
     return result
 
@@ -579,6 +708,19 @@ def _reference_usage_cases():
     all_rows = query_sheet_all_rows(
         spreadsheet_token=spreadsheet_token,
         sheet_name=sheet_name,
+    )
+
+    clear_preview = clear_sheet_columns_by_headers(
+        spreadsheet_token=spreadsheet_token,
+        sheet_name=sheet_name,
+        headers=["状态", "备注"],
+    )
+
+    write_preview = write_sheet_rows_by_headers(
+        spreadsheet_token=spreadsheet_token,
+        sheet_name=sheet_name,
+        headers=["名称", "状态"],
+        rows=[["示例名称", "待处理"], ["示例名称 2", "已完成"]],
     )
 
     matched = query_sheet_row_by_column(
@@ -598,7 +740,7 @@ def _reference_usage_cases():
         confirm_write=True,
     )
 
-    _ = (all_rows, matched, updated)
+    _ = (all_rows, clear_preview, write_preview, matched, updated)
 
 
 if __name__ == "__main__":
