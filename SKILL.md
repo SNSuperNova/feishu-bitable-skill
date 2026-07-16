@@ -92,6 +92,8 @@ rows = query_records_by_time(
 | 在线表格按名称读取整页数据 | `query_sheet_all_rows(spreadsheet_token, sheet_name)`                                         |
 | 在线表格按表头清理列数据 | `clear_sheet_columns_by_headers(spreadsheet_token, sheet_name, headers, confirm_write=True)`  |
 | 在线表格按表头写入多行数据 | `write_sheet_rows_by_headers(spreadsheet_token, sheet_name, headers, rows, confirm_write=True)` |
+| 在线表格按列标识清理列数据 | `clear_sheet_columns_by_letters(spreadsheet_token, sheet_name, columns, confirm_write=True)`  |
+| 在线表格按列标识写入多行数据 | `write_sheet_rows_by_letters(spreadsheet_token, sheet_name, columns, rows, confirm_write=True)` |
 | 在线表格按列查询行     | `query_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value)`          |
 | 在线表格按列查询所有匹配行 | `query_sheet_rows_by_column(spreadsheet_token, sheet_name, match_column, match_value)`         |
 | 在线表格按匹配行更新列   | `update_sheet_row_by_column(spreadsheet_token, sheet_name, match_column, match_value, ...)`    |

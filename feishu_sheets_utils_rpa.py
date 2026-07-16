@@ -162,6 +162,23 @@ def _col_index_to_letter(index):
     return "".join(reversed(letters))
 
 
+def _normalize_column_letter(column):
+    letter = str(column or "").strip().upper()
+    if not letter or not letter.isalpha():
+        raise ValueError("列标识必须是 A、B、C、AB 这类字母: " + repr(column))
+    return letter
+
+
+def _target_column_letters(columns):
+    if isinstance(columns, str):
+        result = [_normalize_column_letter(columns)]
+    else:
+        result = [_normalize_column_letter(column) for column in (columns or [])]
+    if not result:
+        raise ValueError("列标识不能为空")
+    return result
+
+
 def _trim_empty_tail(values):
     out = list(values or [])
     while out and _normalize_cell(out[-1]) == "":
@@ -525,6 +542,102 @@ def write_sheet_rows_by_headers(spreadsheet_token, sheet_name, headers, rows, he
     return result
 
 
+def clear_sheet_columns_by_letters(spreadsheet_token, sheet_name, columns, start_row=2, end_row=None, confirm_write=False):
+    """
+    按 A/B/C/AB 这类列标识清理下方行数据。
+
+    默认从第 2 行清理到 sheet 当前最大行数；传 confirm_write=True 才真实写入空值。
+    """
+    target_columns = _target_column_letters(columns)
+    token = _get_tenant_access_token()
+    sheet = _resolve_sheet(spreadsheet_token, sheet_name, token)
+    sheet_id = sheet.get("sheet_id")
+    sheet_row_count = int(sheet.get("row_count") or 5000)
+    start_row = int(start_row)
+    end_row = int(end_row or sheet_row_count)
+    if start_row < 1:
+        raise ValueError("start_row 必须大于等于 1")
+    if end_row < start_row:
+        raise ValueError("end_row 必须大于等于 start_row")
+
+    row_count = end_row - start_row + 1
+    value_ranges = []
+    preview = []
+    for column in target_columns:
+        range_name = "%s!%s%s:%s%s" % (sheet_id, column, start_row, column, end_row)
+        values = [[""] for _ in range(row_count)]
+        value_ranges.append({"range": range_name, "values": values})
+        preview.append({"column": column, "range": range_name, "rows": row_count})
+
+    result = {
+        "ok": True,
+        "sheet_id": sheet_id,
+        "sheet_name": sheet_name,
+        "columns": target_columns,
+        "clears": preview,
+        "dry_run": not confirm_write,
+    }
+    if not confirm_write:
+        return result
+
+    api_result, request_count, warnings = _apply_value_ranges(spreadsheet_token, value_ranges, token)
+    result["api_response"] = api_result
+    result["request_count"] = request_count
+    if warnings:
+        result["warnings"] = warnings
+    result["dry_run"] = False
+    return result
+
+
+def write_sheet_rows_by_letters(spreadsheet_token, sheet_name, columns, rows, start_row=2, confirm_write=False):
+    """
+    按 A/B/C/AB 这类列标识顺序，从指定行向下写入二维列表数据。
+
+    rows 中每行的第 N 个值写入 columns 的第 N 个列；传 confirm_write=True 才真实写入。
+    """
+    target_columns = _target_column_letters(columns)
+    rows = list(rows or [])
+    token = _get_tenant_access_token()
+    sheet = _resolve_sheet(spreadsheet_token, sheet_name, token)
+    sheet_id = sheet.get("sheet_id")
+    start_row = int(start_row)
+    if start_row < 1:
+        raise ValueError("start_row 必须大于等于 1")
+
+    value_ranges = []
+    preview = []
+    if rows:
+        end_row = start_row + len(rows) - 1
+        for column_pos, column in enumerate(target_columns):
+            range_name = "%s!%s%s:%s%s" % (sheet_id, column, start_row, column, end_row)
+            values = []
+            for row in rows:
+                value = row[column_pos] if column_pos < len(row) else None
+                values.append(["" if value is None else value])
+            value_ranges.append({"range": range_name, "values": values})
+            preview.append({"column": column, "range": range_name, "rows": len(rows)})
+
+    result = {
+        "ok": True,
+        "sheet_id": sheet_id,
+        "sheet_name": sheet_name,
+        "columns": target_columns,
+        "row_count": len(rows),
+        "writes": preview,
+        "dry_run": not confirm_write,
+    }
+    if not confirm_write or not value_ranges:
+        return result
+
+    api_result, request_count, warnings = _apply_value_ranges(spreadsheet_token, value_ranges, token)
+    result["api_response"] = api_result
+    result["request_count"] = request_count
+    if warnings:
+        result["warnings"] = warnings
+    result["dry_run"] = False
+    return result
+
+
 def query_sheet_all_rows(spreadsheet_token, sheet_name, header_row=1, max_rows=None, max_columns=None):
     """
     查询指定名称 sheet 页的全部数据。
@@ -723,6 +836,19 @@ def _reference_usage_cases():
         rows=[["示例名称", "待处理"], ["示例名称 2", "已完成"]],
     )
 
+    clear_by_letters_preview = clear_sheet_columns_by_letters(
+        spreadsheet_token=spreadsheet_token,
+        sheet_name=sheet_name,
+        columns=["A", "B", "AB"],
+    )
+
+    write_by_letters_preview = write_sheet_rows_by_letters(
+        spreadsheet_token=spreadsheet_token,
+        sheet_name=sheet_name,
+        columns=["A", "B"],
+        rows=[["示例名称", "待处理"], ["示例名称 2", "已完成"]],
+    )
+
     matched = query_sheet_row_by_column(
         spreadsheet_token=spreadsheet_token,
         sheet_name=sheet_name,
@@ -740,7 +866,15 @@ def _reference_usage_cases():
         confirm_write=True,
     )
 
-    _ = (all_rows, clear_preview, write_preview, matched, updated)
+    _ = (
+        all_rows,
+        clear_preview,
+        write_preview,
+        clear_by_letters_preview,
+        write_by_letters_preview,
+        matched,
+        updated,
+    )
 
 
 if __name__ == "__main__":

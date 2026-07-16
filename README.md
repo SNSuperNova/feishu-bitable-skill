@@ -166,11 +166,13 @@ Multiple rows use Feishu `batch_create` automatically, with a default batch size
 ```python
 from feishu_sheets_utils_rpa import (
     clear_sheet_columns_by_headers,
+    clear_sheet_columns_by_letters,
     query_sheet_all_rows,
     query_sheet_row_by_column,
     query_sheet_rows_by_column,
     update_sheet_row_by_column,
     write_sheet_rows_by_headers,
+    write_sheet_rows_by_letters,
 )
 
 all_rows = query_sheet_all_rows(
@@ -188,6 +190,22 @@ write_preview = write_sheet_rows_by_headers(
     spreadsheet_token=spreadsheet_token,
     sheet_name="示例Sheet",
     headers=["主播名", "对账日期"],
+    rows=[
+        ["示例主播", "2026-05-12"],
+        ["示例主播 2", "2026-05-13"],
+    ],
+)
+
+clear_letters_preview = clear_sheet_columns_by_letters(
+    spreadsheet_token=spreadsheet_token,
+    sheet_name="示例Sheet",
+    columns=["A", "B", "AB"],
+)
+
+write_letters_preview = write_sheet_rows_by_letters(
+    spreadsheet_token=spreadsheet_token,
+    sheet_name="示例Sheet",
+    columns=["A", "B"],
     rows=[
         ["示例主播", "2026-05-12"],
         ["示例主播 2", "2026-05-13"],
@@ -245,6 +263,8 @@ Sheets rich-text cells returned as objects, such as `{"type": "url", "text": "..
 | `query_sheet_all_rows(...)` | Return all rows from a sheet by sheet name. |
 | `clear_sheet_columns_by_headers(...)` | Clear data below selected headers. Defaults to dry-run. |
 | `write_sheet_rows_by_headers(...)` | Write rows below selected headers from row 2. Defaults to dry-run. |
+| `clear_sheet_columns_by_letters(...)` | Clear data below selected column letters. Defaults to dry-run. |
+| `write_sheet_rows_by_letters(...)` | Write rows below selected column letters in the given order. Defaults to dry-run. |
 | `query_sheet_row_by_column(...)` | Return the first row where a column exactly matches a value. |
 | `query_sheet_rows_by_column(...)` | Return all rows where a column exactly matches a value. |
 | `update_sheet_row_by_column(...)` | Update columns in the first matched row. Defaults to dry-run. |
