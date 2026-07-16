@@ -363,6 +363,53 @@ def _apply_value_ranges(spreadsheet_token, value_ranges, token):
         return responses, len(value_ranges), ["batch_update 失败，已退回逐列更新: " + str(batch_exc)]
 
 
+def _parse_single_column_range(range_name):
+    sheet_id, cells = str(range_name).split("!", 1)
+    start_cell, end_cell = cells.split(":", 1)
+
+    def parse_cell(cell):
+        letters = ""
+        digits = ""
+        for char in str(cell):
+            if char.isalpha():
+                if digits:
+                    raise ValueError("range 单元格格式错误: " + range_name)
+                letters += char.upper()
+            elif char.isdigit():
+                digits += char
+            else:
+                raise ValueError("range 单元格格式错误: " + range_name)
+        if not letters or not digits:
+            raise ValueError("range 单元格格式错误: " + range_name)
+        return letters, int(digits)
+
+    start_col, start_row = parse_cell(start_cell)
+    end_col, end_row = parse_cell(end_cell)
+    if start_col != end_col:
+        raise ValueError("清理 range 必须是单列范围: " + range_name)
+    return sheet_id, start_col, start_row, end_row
+
+
+def _clear_range_by_chunks(spreadsheet_token, range_name, token, chunk_size=1000):
+    sheet_id, column, start_row, end_row = _parse_single_column_range(range_name)
+    responses = []
+    current = start_row
+    while current <= end_row:
+        chunk_end = min(end_row, current + int(chunk_size) - 1)
+        chunk_range = "%s!%s%s:%s%s" % (sheet_id, column, current, column, chunk_end)
+        row_count = chunk_end - current + 1
+        responses.append(_update_values(spreadsheet_token, chunk_range, [[""] for _ in range(row_count)], token))
+        current = chunk_end + 1
+    return responses
+
+
+def _apply_clear_ranges(spreadsheet_token, ranges, token, chunk_size=1000):
+    responses = []
+    for range_name in ranges:
+        responses.extend(_clear_range_by_chunks(spreadsheet_token, range_name, token, chunk_size=chunk_size))
+    return responses, len(responses)
+
+
 def _read_sheet_table(spreadsheet_token, sheet_name, token, header_row=1, max_rows=None, max_columns=None):
     """按第一行表头读取二维区域，后续查询/更新都基于列名定位。"""
     sheet = _resolve_sheet(spreadsheet_token, sheet_name, token)
@@ -457,14 +504,13 @@ def clear_sheet_columns_by_headers(spreadsheet_token, sheet_name, headers, heade
 
     column_indexes = _column_indexes_by_headers(table.get("headers") or [], target_headers)
     row_count = end_row - start_row + 1
-    value_ranges = []
+    ranges = []
     preview = []
     for header in target_headers:
         idx = column_indexes[header]
         col_letter = _col_index_to_letter(idx + 1)
         range_name = "%s!%s%s:%s%s" % (sheet_id, col_letter, start_row, col_letter, end_row)
-        values = [[""] for _ in range(row_count)]
-        value_ranges.append({"range": range_name, "values": values})
+        ranges.append(range_name)
         preview.append({"header": header, "range": range_name, "rows": row_count})
 
     result = {
@@ -478,11 +524,9 @@ def clear_sheet_columns_by_headers(spreadsheet_token, sheet_name, headers, heade
     if not confirm_write:
         return result
 
-    api_result, request_count, warnings = _apply_value_ranges(spreadsheet_token, value_ranges, token)
+    api_result, request_count = _apply_clear_ranges(spreadsheet_token, ranges, token)
     result["api_response"] = api_result
     result["request_count"] = request_count
-    if warnings:
-        result["warnings"] = warnings
     result["dry_run"] = False
     return result
 
@@ -561,12 +605,11 @@ def clear_sheet_columns_by_letters(spreadsheet_token, sheet_name, columns, start
         raise ValueError("end_row 必须大于等于 start_row")
 
     row_count = end_row - start_row + 1
-    value_ranges = []
+    ranges = []
     preview = []
     for column in target_columns:
         range_name = "%s!%s%s:%s%s" % (sheet_id, column, start_row, column, end_row)
-        values = [[""] for _ in range(row_count)]
-        value_ranges.append({"range": range_name, "values": values})
+        ranges.append(range_name)
         preview.append({"column": column, "range": range_name, "rows": row_count})
 
     result = {
@@ -580,11 +623,9 @@ def clear_sheet_columns_by_letters(spreadsheet_token, sheet_name, columns, start
     if not confirm_write:
         return result
 
-    api_result, request_count, warnings = _apply_value_ranges(spreadsheet_token, value_ranges, token)
+    api_result, request_count = _apply_clear_ranges(spreadsheet_token, ranges, token)
     result["api_response"] = api_result
     result["request_count"] = request_count
-    if warnings:
-        result["warnings"] = warnings
     result["dry_run"] = False
     return result
 
